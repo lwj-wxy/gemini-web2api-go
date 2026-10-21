@@ -2,7 +2,9 @@
 import asyncio
 import math
 import os
+from pathlib import Path
 import re
+import tempfile
 import time
 from urllib.parse import unquote, urlsplit
 
@@ -43,12 +45,16 @@ def serialize_cookies(cookies):
 
 
 class BrowserSession:
-    def __init__(self): self.manager=None;self.browser=None;self.context=None;self.page=None
+    def __init__(self): self.manager=None;self.browser=None;self.context=None;self.page=None;self.temporary=None
 
     async def open(self,proxy):
         from playwright.async_api import async_playwright
         self.manager=await async_playwright().start()
         browser_env={name:value for name,value in os.environ.items() if not any(part in name.upper() for part in ('KEY','TOKEN','SECRET','PASSWORD'))}
+        self.temporary=tempfile.TemporaryDirectory(prefix='gemini-login-')
+        for variable,folder in [('XDG_CONFIG_HOME','config'),('XDG_CACHE_HOME','cache')]:
+            directory=Path(self.temporary.name)/folder;directory.mkdir(mode=0o700)
+            browser_env[variable]=str(directory)
         self.browser=await self.manager.chromium.launch(headless=False,args=['--disable-dev-shm-usage'],env=browser_env)
         settings=proxy_settings(proxy)
         self.context=await self.browser.new_context(viewport={'width':WIDTH,'height':HEIGHT},locale='en-US',accept_downloads=False,
@@ -139,6 +145,13 @@ class BrowserSession:
         else: raise ValueError('不支持此操作')
 
     async def close(self):
-        if self.context: await self.context.close()
-        if self.browser: await self.browser.close()
-        if self.manager: await self.manager.stop()
+        try:
+            try:
+                if self.context: await self.context.close()
+            finally:
+                if self.browser: await self.browser.close()
+        finally:
+            try:
+                if self.manager: await self.manager.stop()
+            finally:
+                if self.temporary: self.temporary.cleanup()
