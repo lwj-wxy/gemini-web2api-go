@@ -6,6 +6,7 @@ import unittest
 
 from core import Store, parse_accounts
 from worker import Engine
+from browser_login import LoginFailure, classify_login_failure
 
 SEED=base64.b32encode(b'12345678901234567890').decode()
 
@@ -21,9 +22,11 @@ class Native:
 class Session:
     instances=[]
     needs_human=False
+    failure=None
     def __init__(self): self.closed=False;self.actions=[];self.instances.append(self)
     async def open(self,proxy): self.proxy=proxy
     async def login(self,credentials,pause,cancelled,progress):
+        if self.failure:raise self.failure
         if self.needs_human: await pause('需要额外安全验证')
         if cancelled(): raise asyncio.CancelledError()
         return 'SAPISID=fake; __Secure-1PSID=fake'
@@ -35,7 +38,7 @@ class Session:
 class FlowTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         self.temporary=tempfile.TemporaryDirectory();self.store=Store(Path(self.temporary.name))
-        self.native=Native();Session.instances=[];Session.needs_human=False
+        self.native=Native();Session.instances=[];Session.needs_human=False;Session.failure=None
         self.engine=Engine(self.store,self.native,Session,human_timeout=0.1)
         self.job=self.store.enqueue(parse_accounts(f'a@example.com----password----{SEED}'),[{'id':7,'name':'node','url':'http://proxy:20007'}])[0]
     async def asyncTearDown(self): self.temporary.cleanup()
@@ -52,6 +55,33 @@ class FlowTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.native.calls[0][0],7)
         self.assertTrue(Session.instances[0].closed)
         self.assertIsNone(self.store.credentials(self.job['id']))
+
+    async def test_rejected_browser_finishes_without_manual_prompt_or_import(self):
+        Session.failure=LoginFailure('browser_rejected')
+        await self.engine.execute(self.job)
+        job=self.store.get(self.job['id'])
+        self.assertEqual(job['state'],'login_blocked')
+        self.assertIn('Google 拒绝当前浏览器',job['message'])
+        self.assertIsNone(self.store.credentials(self.job['id']))
+        self.assertEqual(self.native.calls,[])
+        self.assertTrue(Session.instances[0].closed)
+        with self.assertRaises(ValueError):self.engine.resume(self.job['id'])
+
+    async def test_wrong_password_is_distinct_from_browser_and_cookie_failure(self):
+        Session.failure=LoginFailure('password_rejected')
+        await self.engine.execute(self.job)
+        self.assertEqual(self.store.get(self.job['id'])['state'],'credentials_rejected')
+        self.assertIsNone(self.store.credentials(self.job['id']))
+        self.assertEqual(self.native.calls,[])
+
+    async def test_page_failure_classification_preserves_real_security_challenges(self):
+        cases=[('This browser or app may not be secure.','browser_rejected'),
+               ('Wrong password. Try again.','password_rejected'),
+               ('Couldn\u2019t find your Google Account','identity_not_found'),
+               ('Too many failed attempts. Try later.','rate_limited')]
+        for text,code in cases:self.assertEqual(classify_login_failure(text).code,code)
+        for text in ['Get a code from Google Authenticator','Check your phone','Enter the code sent to your phone','Verify it is you']:
+            self.assertIsNone(classify_login_failure(text,'/v3/signin/challenge'))
 
     async def test_corrupt_credential_row_does_not_stop_later_jobs(self):
         with self.store.connect() as db:

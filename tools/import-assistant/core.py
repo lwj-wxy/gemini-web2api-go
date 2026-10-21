@@ -17,7 +17,7 @@ import uuid
 
 from cryptography.fernet import Fernet
 
-TERMINAL = ('imported', 'already_present', 'failed', 'cancelled', 'interrupted', 'expired')
+TERMINAL = ('imported', 'already_present', 'failed', 'cancelled', 'interrupted', 'expired', 'login_blocked', 'credentials_rejected')
 PUBLIC_COLUMNS = 'id,email,state,message,proxy_id,proxy_name,account_id,created_at,updated_at'
 
 
@@ -77,7 +77,7 @@ def parse_accounts(text):
             if any(not isinstance(row[k], str) for k in row): raise ValueError()
             email = row['email'].strip().lower()
             if not re.fullmatch(r'[^\s@<>]{1,128}@[^\s@<>]{1,128}\.[^\s@<>]{1,64}', email): raise ValueError()
-            password = row['password']
+            password = row['password'].strip()
             if not 1 <= len(password) <= 1024 or any(c in password for c in '\r\n\x00'): raise ValueError()
             seed = normalize_seed(row['totp'].strip())
             if email in seen: raise ValueError()

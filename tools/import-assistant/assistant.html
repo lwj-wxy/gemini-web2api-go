@@ -6,6 +6,7 @@
 <style>
 :root{font-family:Arial,"Microsoft YaHei",sans-serif;color:#1f1f1f;background:#fff;font-size:14px}*{box-sizing:border-box}body{margin:0;padding:16px}h2{font-size:17px;font-weight:500;margin:0 0 12px}p{color:#5f6368;line-height:1.6;margin:8px 0}label{display:grid;gap:8px;margin:12px 0}textarea,input,select,button{font:inherit}textarea,input,select{padding:10px 12px;border:1px solid #d5dae1;border-radius:10px;background:#f8fafd;color:inherit;min-width:0}textarea{width:100%;min-height:128px;resize:vertical;font-family:ui-monospace,monospace}button{border:0;border-radius:24px;padding:10px 16px;background:#eff3fa;color:#174ea6;cursor:pointer}button.primary{background:#d3e3fd;color:#0b57d0}button:disabled{opacity:.5;cursor:default}button.danger{color:#b3261e}button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px solid #4285f4;outline-offset:2px}.toolbar{display:flex;flex-wrap:wrap;align-items:center;gap:8px}.toolbar label{margin:0;display:flex;align-items:center;gap:8px}.toolbar select{max-width:280px}.note{font-size:12px}.error{color:#b3261e;white-space:pre-wrap;margin:10px 0;min-height:18px}.table-wrap{width:100%;overflow-x:auto;margin:12px 0}table{width:100%;border-collapse:collapse;min-width:620px}th,td{text-align:left;padding:10px 8px;border-bottom:1px solid #e8ecf1;vertical-align:top}th{color:#5f6368;font-weight:500}.email{overflow-wrap:anywhere}.status{display:inline-block;padding:3px 9px;border-radius:20px;background:#eff3fa;white-space:nowrap}.status.imported{background:#e6f4ea;color:#146c2e}.status.awaiting_human{background:#fdf0e0;color:#8f5000}.status.failed,.status.expired,.status.interrupted{background:#fceeee;color:#b3261e}.actions{display:flex;gap:6px;flex-wrap:wrap}.actions button{padding:6px 10px;font-size:12px}.muted{font-size:12px;color:#5f6368;margin-top:5px}.manual{padding:14px;border:1px solid #d5dae1;border-radius:14px;margin-top:16px}.manual[hidden]{display:none}#screen{display:block;width:100%;height:auto;cursor:crosshair;border:1px solid #e8ecf1;margin:10px 0;touch-action:manipulation}#manualText{flex:1;min-width:150px}.empty{color:#5f6368;padding:20px;text-align:center}.import-file{display:none}@media(max-width:600px){body{padding:10px}.toolbar{align-items:stretch}.toolbar label{flex:1 1 100%;display:grid}.toolbar select{width:100%;max-width:none}.manual{padding:10px}.toolbar button{padding:9px 12px}}
 .table-wrap:has(.empty) table{min-width:0}
+.status.login_blocked,.status.credentials_rejected{background:#fceeee;color:#b3261e}
 </style>
 </head>
 <body>
@@ -30,7 +31,7 @@
 </section>
 <script>
 const base='/admin/api/import-assistant/';
-const states={queued:'等待登录',logging_in:'正在登录',awaiting_human:'等待人工验证',verifying:'检测入池中',imported:'已入池',already_present:'已存在',failed:'失败',cancelled:'已取消',interrupted:'已中断',expired:'已超时'};
+const states={queued:'等待登录',logging_in:'正在登录',awaiting_human:'等待人工验证',verifying:'检测入池中',imported:'已入池',already_present:'已存在',failed:'失败',login_blocked:'登录受阻',credentials_rejected:'凭据需核对',cancelled:'已取消',interrupted:'已中断',expired:'已超时'};
 let jobs=[],selected=null,screenUrl=null,polling=false,screenBusy=false,disposed=false;
 const $=id=>document.getElementById(id);
 const showError=message=>{$('error').textContent=message||''};

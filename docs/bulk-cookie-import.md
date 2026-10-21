@@ -34,3 +34,14 @@ Deployment: retain original compose, native source/UI, database and environment;
 build and test sidecar/native images before cutover; keep the current image
 compatibility service unchanged. Use a canary with an isolated database for
 admin/UI validation, then publish with rollback and verify account IDs/config.
+
+Known login failures finish immediately: browser/sign-in rejections and login
+rate limits use `login_blocked`; rejected emails/passwords use
+`credentials_rejected`. They erase pending credentials, close the browser, and
+do not change existing Cookie accounts. Only actionable security challenges
+pause for manual verification. Google may reject software-controlled browsers:
+https://support.google.com/accounts/answer/7675428
+
+Import strips delimiter padding from Google passwords while preserving internal
+spaces. Google disallows passwords starting or ending in blank spaces:
+https://support.google.com/accounts/answer/32040

@@ -92,5 +92,22 @@ class BrowserTests(unittest.IsolatedAsyncioTestCase):
         for action in [{'type':'click','x':-1,'y':0},{'type':'key','key':'F12'},{'type':'navigate','url':'file:///etc/passwd'}]:
             with self.assertRaises(ValueError): await self.session.input(action)
 
+    async def test_google_identity_dependency_is_allowed_only_as_subresource(self):
+        self.assertTrue(allowed_url('https://accounts.youtube.com/accounts/CheckConnection',False))
+        self.assertFalse(allowed_url('https://accounts.youtube.com/accounts/CheckConnection',True))
+        self.assertFalse(allowed_url('https://accounts.youtube.com.attacker.example/',False))
+        self.assertFalse(allowed_url('https://www.youtube.com/',False))
+
+    async def test_browser_rejection_is_not_offered_as_manual_verification(self):
+        async def route(request):
+            if 'ServiceLogin' in request.request.url:
+                html='<input id="identifierId"><button id="identifierNext" onclick="location.href=\'https://accounts.google.com/v3/signin/rejected\'">Next</button>'
+            else:html='<h1>Couldn\'t sign you in</h1><p>This browser or app may not be secure.</p><p>Try using a different browser.</p>'
+            await request.fulfill(content_type='text/html',body=html)
+        await self.context.route('**/*',route)
+        async def pause(message):self.fail('Browser rejection must not request a verification code')
+        with self.assertRaisesRegex(ValueError,'Google 拒绝当前浏览器'):
+            await self.session.login(self.credentials,pause,lambda:False,lambda message:None)
+
 
 if __name__=='__main__': unittest.main()

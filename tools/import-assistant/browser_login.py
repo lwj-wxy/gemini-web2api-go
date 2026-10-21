@@ -14,11 +14,41 @@ LOGIN_URL='https://accounts.google.com/ServiceLogin?continue=https%3A%2F%2Fgemin
 WIDTH, HEIGHT=1000,720
 
 
+class LoginFailure(ValueError):
+    messages={
+        'browser_rejected':'Google 拒绝当前浏览器登录；本次未入池。请在受支持的浏览器完成首次登录后导入 Cookie。',
+        'rate_limited':'Google 暂时限制登录尝试；本次未入池，请稍后再试。',
+        'password_rejected':'Google 提示密码不正确；本次未入池，请核对密码后重新导入。',
+        'identity_not_found':'Google 未找到此账号；本次未入池，请核对邮箱后重新导入。',
+        'sign_in_rejected':'Google 拒绝了本次登录；账号有效性尚未确认，请检查登录条件后重试。',
+    }
+    def __init__(self,code):
+        self.code=code
+        self.state='credentials_rejected' if code in ('password_rejected','identity_not_found') else 'login_blocked'
+        super().__init__(self.messages[code])
+
+
+def classify_login_failure(text,path=''):
+    text=' '.join(text.lower().replace('\u2019',"'").split())
+    if any(phrase in text for phrase in ['this browser or app may not be secure','try using a different browser','浏览器或应用可能不安全','尝试使用其他浏览器']):
+        return LoginFailure('browser_rejected')
+    if any(phrase in text for phrase in ['too many failed attempts','too many attempts','尝试次数过多','尝试次数太多']):
+        return LoginFailure('rate_limited')
+    if any(phrase in text for phrase in ['wrong password','incorrect password','密码不正确','密码错误']):
+        return LoginFailure('password_rejected')
+    if any(phrase in text for phrase in ["couldn't find your google account",'找不到您的 google 账号','未找到您的 google 账号']):
+        return LoginFailure('identity_not_found')
+    if 'rejected' in path.lower() and any(phrase in text for phrase in ["couldn't sign you in",'无法登录']):
+        return LoginFailure('sign_in_rejected')
+    return None
+
+
 def allowed_url(value,main=False):
     parsed=urlsplit(value)
     if not main and parsed.scheme in ('data','blob','about'): return True
     host=(parsed.hostname or '').lower()
     domains=('google.com',) if main else ('google.com','gstatic.com','googleapis.com','googleusercontent.com','ggpht.com','recaptcha.net')
+    if not main and parsed.scheme=='https' and host=='accounts.youtube.com': return True
     return parsed.scheme=='https' and any(host==domain or host.endswith('.'+domain) for domain in domains)
 
 
@@ -97,6 +127,8 @@ class BrowserSession:
                 last_action=time.monotonic();deadline=time.monotonic()+180
                 continue
             if host=='accounts.google.com':
+                failure=classify_login_failure(await self.page.locator('body').inner_text(timeout=10000),urlsplit(self.page.url).path)
+                if failure: raise failure
                 email=await self.visible('#identifierId')
                 password=await self.visible('input[name="Passwd"],input[type="password"]')
                 code=await self.visible('input[name="totpPin"],#totpPin')

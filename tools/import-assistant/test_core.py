@@ -24,6 +24,12 @@ class CoreTests(unittest.TestCase):
             records = parse_accounts(text)
             self.assertEqual(records, [{'email': 'a@example.com', 'password': 'pa ss', 'totp': SEED}])
 
+    def test_google_import_ignores_separator_padding_preserving_internal_spaces(self):
+        record=parse_accounts(f' a@example.com ---- pa ss ---- {SEED.lower()} ')[0]
+        self.assertEqual(record['email'],'a@example.com')
+        self.assertEqual(record['password'],'pa ss')
+        self.assertEqual(record['totp'],SEED)
+
     def test_parse_otpauth_and_reject_duplicates_secrets_in_errors(self):
         self.assertEqual(parse_accounts(f'a@example.com----pass----otpauth://totp/account?secret={SEED}')[0]['totp'], SEED)
         for text in [f'a@example.com----secret-password----123456',

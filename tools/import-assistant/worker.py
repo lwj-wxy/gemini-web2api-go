@@ -7,6 +7,7 @@ import urllib.error
 from cryptography.fernet import InvalidToken
 
 from core import TERMINAL
+from browser_login import LoginFailure
 
 
 class NativeGateway:
@@ -85,6 +86,8 @@ class Engine:
         except asyncio.CancelledError:
             current=self.store.get(identifier)
             if current and current['state'] not in TERMINAL: self.store.update(identifier,'interrupted','登录已中断，请重新导入')
+        except LoginFailure as error:
+            self.store.update(identifier,error.state,str(error))
         except ValueError:
             self.store.update(identifier,'failed','登录态或固定出口检测未通过，未入池；请检查后重新导入')
         except Exception:
