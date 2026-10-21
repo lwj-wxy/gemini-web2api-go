@@ -4,6 +4,8 @@ import json
 import urllib.request
 import urllib.error
 
+from cryptography.fernet import InvalidToken
+
 from core import TERMINAL
 
 
@@ -48,7 +50,10 @@ class Engine:
 
     async def execute(self,job):
         identifier=job['id']
-        credentials=self.store.credentials(identifier)
+        try: credentials=self.store.credentials(identifier)
+        except (InvalidToken,ValueError):
+            self.store.update(identifier,'failed','待处理凭据无法读取，请重新导入此账号')
+            return
         if not credentials or self.store.get(identifier)['state']!='queued': return
         self.active_id=identifier;self.signal=asyncio.Event();self.cancel_event=asyncio.Event()
         self.session=self.session_factory()

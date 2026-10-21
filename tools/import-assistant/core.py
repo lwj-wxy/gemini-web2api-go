@@ -118,7 +118,7 @@ class Store:
 
     def list(self):
         with self.connect() as db:
-            return [dict(row) for row in db.execute('SELECT ' + PUBLIC_COLUMNS + ' FROM jobs ORDER BY created_at DESC LIMIT 500')]
+            return [dict(row) for row in db.execute('SELECT ' + PUBLIC_COLUMNS + ' FROM jobs ORDER BY (secrets IS NULL),created_at DESC LIMIT 500')]
 
     def get(self, identifier):
         with self.connect() as db:

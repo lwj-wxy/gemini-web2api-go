@@ -1,6 +1,7 @@
 """A regular isolated browser; unexpected challenges always require a human."""
 import asyncio
 import math
+import os
 import re
 import time
 from urllib.parse import unquote, urlsplit
@@ -47,7 +48,8 @@ class BrowserSession:
     async def open(self,proxy):
         from playwright.async_api import async_playwright
         self.manager=await async_playwright().start()
-        self.browser=await self.manager.chromium.launch(headless=False,args=['--disable-dev-shm-usage'])
+        browser_env={name:value for name,value in os.environ.items() if not any(part in name.upper() for part in ('KEY','TOKEN','SECRET','PASSWORD'))}
+        self.browser=await self.manager.chromium.launch(headless=False,args=['--disable-dev-shm-usage'],env=browser_env)
         settings=proxy_settings(proxy)
         self.context=await self.browser.new_context(viewport={'width':WIDTH,'height':HEIGHT},locale='en-US',accept_downloads=False,
             **({'proxy':settings} if settings else {}))

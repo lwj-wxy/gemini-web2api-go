@@ -53,6 +53,16 @@ class FlowTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(Session.instances[0].closed)
         self.assertIsNone(self.store.credentials(self.job['id']))
 
+    async def test_corrupt_credential_row_does_not_stop_later_jobs(self):
+        with self.store.connect() as db:
+            db.execute('UPDATE jobs SET secrets=? WHERE id=?',(b'corrupt-ciphertext',self.job['id']))
+        await self.engine.execute(self.job)
+        self.assertEqual(self.store.get(self.job['id'])['state'],'failed')
+        self.assertIsNone(self.store.credentials(self.job['id']))
+        other=self.store.enqueue(parse_accounts(f'b@example.com----password----{SEED}'),[{'id':0,'name':'直连','url':''}])[0]
+        await self.engine.execute(other)
+        self.assertEqual(self.store.get(other['id'])['state'],'imported')
+
     async def test_extra_challenge_pauses_and_resumes_same_session(self):
         Session.needs_human=True
         task=asyncio.create_task(self.engine.execute(self.job))

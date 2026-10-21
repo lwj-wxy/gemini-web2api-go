@@ -66,5 +66,15 @@ class CoreTests(unittest.TestCase):
             with self.assertRaises(ValueError): store.enqueue(records,[{'id':0,'name':'直连','url':''}])
             self.assertEqual(len(store.list()),1)
 
+    def test_active_queue_is_not_hidden_by_newer_finished_history(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            store=Store(Path(temporary))
+            pending=store.enqueue(parse_accounts(f'a@example.com----pass----{SEED}'),[{'id':0,'name':'直连','url':''}])[0]
+            with store.connect() as db:
+                db.executemany("INSERT INTO jobs VALUES (lower(hex(randomblob(16))),'ended@example.invalid','cancelled','',0,'直连',NULL,?,?,NULL)",
+                    [(pending['created_at']+i+1,pending['created_at']+i+1) for i in range(501)])
+            self.assertTrue(any(job['id']==pending['id'] for job in store.list()),'Pending job must remain visible')
+            self.assertEqual(len(store.list()),500)
+
 
 if __name__ == '__main__': unittest.main()

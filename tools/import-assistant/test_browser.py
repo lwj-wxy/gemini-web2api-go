@@ -1,6 +1,7 @@
 import asyncio
 import base64
 import re
+import time
 import unittest
 
 from playwright.async_api import async_playwright
@@ -18,19 +19,21 @@ class BrowserTests(unittest.IsolatedAsyncioTestCase):
         self.context=await self.browser.new_context(viewport={'width':1000,'height':720})
         self.page=await self.context.new_page()
         self.session=BrowserSession();self.session.context=self.context;self.session.page=self.page
-        self.requests=[];self.credentials={'email':'a@example.invalid','password':'fixture-password','totp':SEED}
+        self.requests=[];self.captured={};self.credentials={'email':'a@example.invalid','password':'fixture-password','totp':SEED}
 
     async def asyncTearDown(self): await self.browser.close();await self.playwright.stop()
 
     async def setup_routes(self,human=False):
+        def capture(source,kind,value): self.captured[kind]=(value,time.time())
+        await self.context.expose_binding('captureFixture',capture)
         async def route(request):
             url=request.request.url;self.requests.append(url)
             if 'ServiceLogin' in url:
-                html='<input id="identifierId" type="email"><button id="identifierNext" onclick="location.href=\'https://accounts.google.com/password\'">Next</button>'
+                html='<input id="identifierId" type="email"><button id="identifierNext" onclick="captureFixture(\'email\',document.querySelector(\'input\').value).then(()=>location.href=\'https://accounts.google.com/password\')">Next</button>'
             elif '/password' in url:
-                html='<input name="Passwd" type="password"><button id="passwordNext" onclick="location.href=\'https://accounts.google.com/challenge/totp\'">Next</button>'
+                html='<input name="Passwd" type="password"><button id="passwordNext" onclick="captureFixture(\'password\',document.querySelector(\'input\').value).then(()=>location.href=\'https://accounts.google.com/challenge/totp\')">Next</button>'
             elif '/challenge/totp' in url:
-                html='<input name="totpPin" id="totpPin"><button id="totpNext" onclick="location.href=\'https://accounts.google.com/'+('human' if human else 'done')+'\'">Next</button>'
+                html='<input name="totpPin" id="totpPin"><button id="totpNext" onclick="captureFixture(\'totp\',document.querySelector(\'input\').value).then(()=>location.href=\'https://accounts.google.com/'+('human' if human else 'done')+'\')">Next</button>'
             elif '/human' in url:
                 html='<h1>Additional verification</h1><input id="humanCode"><button id="humanNext" onclick="location.href=\'https://accounts.google.com/done\'">Continue</button>'
             elif '/done' in url:
@@ -51,6 +54,9 @@ class BrowserTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn('SAPISID=fixture-sapisid',cookie)
         self.assertIn('__Secure-1PSID=fixture-session',cookie)
         self.assertTrue(any('2FA' in step for step in steps))
+        self.assertEqual(self.captured['email'][0],self.credentials['email'])
+        self.assertEqual(self.captured['password'][0],self.credentials['password'])
+        self.assertEqual(self.captured['totp'][0],totp(SEED,self.captured['totp'][1]))
         self.assertTrue(all(url.startswith('https://accounts.google.com/') or url=='https://gemini.google.com/app' for url in self.requests))
 
     async def test_manual_screen_input_and_resume_same_browser(self):
@@ -66,6 +72,16 @@ class BrowserTests(unittest.IsolatedAsyncioTestCase):
         cookie=await self.session.login(self.credentials,pause,lambda:False,lambda message:None)
         self.assertEqual(len(pauses),1)
         self.assertIn('fixture-session',cookie)
+
+    async def test_headed_browser_starts_and_closes_with_ephemeral_profile(self):
+        headed=BrowserSession()
+        try:
+            await headed.open({'url':''})
+            await headed.context.route('**/*',lambda route:route.fulfill(content_type='text/html',body='<input id="identifierId" type="email">'))
+            await headed.page.goto(LOGIN_URL)
+            self.assertIsNotNone(await headed.visible('#identifierId'))
+            self.assertTrue((await headed.screenshot()).startswith(b'\xff\xd8'))
+        finally: await headed.close()
 
     async def test_navigation_and_remote_input_are_bounded(self):
         self.assertFalse(allowed_url('http://127.0.0.1/admin',True))
