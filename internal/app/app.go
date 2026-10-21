@@ -143,6 +143,9 @@ func Run() {
 		mux.HandleFunc("/admin/api/usage", requireAuth(handleAdminUsage))
 		mux.HandleFunc("/admin/api/config", requireAuth(handleAdminConfig))
 		mux.HandleFunc("/admin/api/cookies", requireAuth(handleAdminCookies))
+		mux.HandleFunc("/admin/import-assistant/", requireAuth(handleImportAssistant))
+		mux.HandleFunc("/admin/api/import-assistant/", requireAuth(handleImportAssistant))
+		mux.HandleFunc("/admin/api/cookies/import-verified", requireAuth(handleVerifiedCookieImport))
 		mux.HandleFunc("/admin/api/cookies/", requireAuth(handleAdminCookieItem))
 		mux.HandleFunc("/admin/api/test", requireAuth(handleAdminTest))
 	}

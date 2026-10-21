@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Cookie 池 · 批量导入助手</title>
+<style>
+:root{font-family:Arial,"Microsoft YaHei",sans-serif;color:#1f1f1f;background:#fff;font-size:14px}*{box-sizing:border-box}body{margin:0;padding:16px}h2{font-size:17px;font-weight:500;margin:0 0 12px}p{color:#5f6368;line-height:1.6;margin:8px 0}label{display:grid;gap:8px;margin:12px 0}textarea,input,select,button{font:inherit}textarea,input,select{padding:10px 12px;border:1px solid #d5dae1;border-radius:10px;background:#f8fafd;color:inherit;min-width:0}textarea{width:100%;min-height:128px;resize:vertical;font-family:ui-monospace,monospace}button{border:0;border-radius:24px;padding:10px 16px;background:#eff3fa;color:#174ea6;cursor:pointer}button.primary{background:#d3e3fd;color:#0b57d0}button:disabled{opacity:.5;cursor:default}button.danger{color:#b3261e}button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px solid #4285f4;outline-offset:2px}.toolbar{display:flex;flex-wrap:wrap;align-items:center;gap:8px}.toolbar label{margin:0;display:flex;align-items:center;gap:8px}.toolbar select{max-width:280px}.note{font-size:12px}.error{color:#b3261e;white-space:pre-wrap;margin:10px 0;min-height:18px}.table-wrap{width:100%;overflow-x:auto;margin:12px 0}table{width:100%;border-collapse:collapse;min-width:620px}th,td{text-align:left;padding:10px 8px;border-bottom:1px solid #e8ecf1;vertical-align:top}th{color:#5f6368;font-weight:500}.email{overflow-wrap:anywhere}.status{display:inline-block;padding:3px 9px;border-radius:20px;background:#eff3fa;white-space:nowrap}.status.imported{background:#e6f4ea;color:#146c2e}.status.awaiting_human{background:#fdf0e0;color:#8f5000}.status.failed,.status.expired,.status.interrupted{background:#fceeee;color:#b3261e}.actions{display:flex;gap:6px;flex-wrap:wrap}.actions button{padding:6px 10px;font-size:12px}.muted{font-size:12px;color:#5f6368;margin-top:5px}.manual{padding:14px;border:1px solid #d5dae1;border-radius:14px;margin-top:16px}.manual[hidden]{display:none}#screen{display:block;width:100%;height:auto;cursor:crosshair;border:1px solid #e8ecf1;margin:10px 0;touch-action:manipulation}#manualText{flex:1;min-width:150px}.empty{color:#5f6368;padding:20px;text-align:center}.import-file{display:none}@media(max-width:600px){body{padding:10px}.toolbar{align-items:stretch}.toolbar label{flex:1 1 100%;display:grid}.toolbar select{width:100%;max-width:none}.manual{padding:10px}.toolbar button{padding:9px 12px}}
+</style>
+</head>
+<body>
+<form id="importForm" autocomplete="off">
+  <label for="accounts">账号资料<textarea id="accounts" name="account-import" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="邮箱----密码----2FA密钥&#10;每行一个账号，最多 100 个；也支持三列 CSV 或 JSON 数组"></textarea></label>
+  <div class="toolbar">
+    <label for="proxy">登录出口<select id="proxy"><option value="-1">自动分配固定代理</option><option value="0">直连</option></select></label>
+    <button type="button" id="chooseFile">选择文件</button><input class="import-file" type="file" id="file" accept=".txt,.csv,.json,text/plain,text/csv,application/json">
+    <button class="primary" id="submit" type="submit">开始批量导入</button>
+  </div>
+  <p class="note">2FA 填写密钥，验证码由本服务器生成。登录会逐个执行；遇到额外验证可在下方接手。关闭面板后，队列继续处理。</p>
+</form>
+<div class="error" id="error" role="alert"></div>
+<div class="toolbar"><h2 style="margin:0;flex:1">导入任务 <span id="summary" class="muted"></span></h2><button type="button" id="refresh">刷新</button><button type="button" id="clear">清除已结束任务</button></div>
+<div class="table-wrap"><table><thead><tr><th>账号</th><th>进度</th><th>出口</th><th>操作</th></tr></thead><tbody id="jobs"></tbody></table></div>
+<section id="manual" class="manual" hidden>
+  <h2 id="manualTitle">接手安全验证</h2>
+  <p class="note">点击下方浏览器画面进行操作。需要输入时，先点击画面中的输入框，再填写下方内容并发送；验证码、短信或手机确认由你完成。完成后点击“继续自动处理”。等待超过 30 分钟会释放此登录窗口。</p>
+  <img id="screen" alt="当前任务的登录验证页面" width="1000" height="720">
+  <div class="toolbar"><input type="password" id="manualText" placeholder="验证码或验证信息" autocomplete="off"><button type="button" id="send">发送输入</button><button type="button" data-key="Enter">回车</button><button type="button" data-key="Tab">Tab</button><button type="button" data-key="Backspace">退格</button><button type="button" data-key="Control+A">全选</button><button type="button" data-key="Space">空格</button></div>
+  <div class="toolbar" style="margin-top:10px"><button type="button" data-wheel="-450">向上滚动</button><button type="button" data-wheel="450">向下滚动</button><button type="button" id="refreshScreen">刷新画面</button><button type="button" id="resume" class="primary">继续自动处理</button><button type="button" id="cancelActive" class="danger">取消此任务</button></div>
+</section>
+<script>
+const base='/admin/api/import-assistant/';
+const states={queued:'等待登录',logging_in:'正在登录',awaiting_human:'等待人工验证',verifying:'检测入池中',imported:'已入池',already_present:'已存在',failed:'失败',cancelled:'已取消',interrupted:'已中断',expired:'已超时'};
+let jobs=[],selected=null,screenUrl=null,polling=false,screenBusy=false,disposed=false;
+const $=id=>document.getElementById(id);
+const showError=message=>{$('error').textContent=message||''};
+async function api(path,options={}){
+  const response=await fetch(base+path,{credentials:'same-origin',cache:'no-store',...options,headers:{'Content-Type':'application/json','X-Gemini-Import':'1',...options.headers}});
+  const data=await response.json();if(!response.ok)throw new Error(data.error||'操作未完成，请重试');return data;
+}
+function button(label,action,danger=false){const b=document.createElement('button');b.type='button';b.textContent=label;if(danger)b.className='danger';b.onclick=()=>action().catch(e=>showError(e.message));return b}
+function render(){
+  const body=$('jobs');body.replaceChildren();
+  if(!jobs.length){const tr=document.createElement('tr'),td=document.createElement('td');td.colSpan=4;td.className='empty';td.textContent='暂无导入任务';tr.append(td);body.append(tr)}
+  for(const job of jobs){
+    const row=document.createElement('tr'),email=document.createElement('td'),status=document.createElement('td'),proxy=document.createElement('td'),actions=document.createElement('td');
+    email.className='email';email.textContent=job.email;
+    const badge=document.createElement('span');badge.className='status '+job.state;badge.textContent=states[job.state]||'处理中';status.append(badge);
+    const detail=document.createElement('div');detail.className='muted';detail.textContent=job.message;status.append(detail);
+    proxy.textContent=job.proxy_name;actions.className='actions';
+    if(job.state==='awaiting_human')actions.append(button('接手验证',async()=>{selected=job.id;render();await refreshScreen()}));
+    if(['queued','logging_in','awaiting_human'].includes(job.state))actions.append(button('取消',async()=>{await api('jobs/'+job.id+'/cancel',{method:'POST'});await refresh()},true));
+    row.append(email,status,proxy,actions);body.append(row);
+  }
+  const finished=jobs.filter(j=>!['queued','logging_in','awaiting_human','verifying'].includes(j.state)).length;
+  $('summary').textContent=jobs.length?finished+' / '+jobs.length+' 已结束':'';
+  const active=jobs.find(j=>j.id===selected&&j.state==='awaiting_human');
+  $('manual').hidden=!active;
+  if(active)$('manualTitle').textContent='接手安全验证 · '+active.email;
+  else{selected=null;$('manualText').value='';$('screen').removeAttribute('src');if(screenUrl){URL.revokeObjectURL(screenUrl);screenUrl=null}}
+}
+async function refresh(){
+  if(polling||disposed)return;polling=true;
+  try{const data=await api('jobs');jobs=data.items;render();if(selected)await refreshScreen()}
+  catch(error){showError(error.message)}finally{polling=false}
+}
+async function refreshScreen(){
+  if(!selected||screenBusy||disposed)return;screenBusy=true;const identifier=selected;
+  try{const response=await fetch(base+'jobs/'+identifier+'/screen',{credentials:'same-origin',cache:'no-store'});if(!response.ok)throw new Error('验证画面暂不可用，请刷新任务');const blob=await response.blob();if(selected!==identifier||disposed)return;const next=URL.createObjectURL(blob),old=screenUrl;screenUrl=next;$('screen').src=next;if(old)URL.revokeObjectURL(old)}
+  catch(error){showError(error.message)}finally{screenBusy=false}
+}
+async function input(action){if(!selected)return;await api('jobs/'+selected+'/input',{method:'POST',body:JSON.stringify(action)});await refreshScreen()}
+$('importForm').onsubmit=async event=>{
+  event.preventDefault();showError('');$('submit').disabled=true;
+  try{await api('jobs',{method:'POST',body:JSON.stringify({accounts:$('accounts').value,proxy_id:Number($('proxy').value)})});$('accounts').value='';$('file').value='';await refresh()}
+  catch(error){showError(error.message)}finally{$('submit').disabled=false}
+};
+$('chooseFile').onclick=()=>$('file').click();
+$('file').onchange=async event=>{const file=event.target.files[0];if(!file)return;if(file.size>512*1024){showError('文件不能超过 512 KB');event.target.value='';return}$('accounts').value=await file.text()};
+$('refresh').onclick=refresh;$('clear').onclick=async()=>{try{await api('jobs',{method:'DELETE'});await refresh()}catch(error){showError(error.message)}};
+$('screen').onclick=event=>{const bounds=event.target.getBoundingClientRect();input({type:'click',x:Math.max(0,Math.min(999,(event.clientX-bounds.left)*1000/bounds.width)),y:Math.max(0,Math.min(719,(event.clientY-bounds.top)*720/bounds.height))}).catch(error=>showError(error.message))};
+$('send').onclick=async()=>{const value=$('manualText').value;if(!value)return;$('manualText').value='';try{await input({type:'text',text:value})}catch(error){showError(error.message)}};
+document.querySelectorAll('[data-key]').forEach(element=>element.onclick=()=>input({type:'key',key:element.dataset.key}).catch(error=>showError(error.message)));
+document.querySelectorAll('[data-wheel]').forEach(element=>element.onclick=()=>input({type:'wheel',delta:Number(element.dataset.wheel)}).catch(error=>showError(error.message)));
+$('resume').onclick=async()=>{try{await api('jobs/'+selected+'/resume',{method:'POST'});await refresh()}catch(error){showError(error.message)}};
+$('cancelActive').onclick=async()=>{try{await api('jobs/'+selected+'/cancel',{method:'POST'});await refresh()}catch(error){showError(error.message)}};
+$('refreshScreen').onclick=refreshScreen;
+api('proxies').then(data=>{for(const item of data.items){const option=document.createElement('option');option.value=item.id;option.textContent=item.name;$('proxy').append(option)}}).catch(error=>showError(error.message));
+refresh();const timer=setInterval(refresh,2500);
+addEventListener('pagehide',()=>{disposed=true;clearInterval(timer);$('accounts').value='';$('manualText').value='';if(screenUrl)URL.revokeObjectURL(screenUrl)});
+</script>
+</body>
+</html>

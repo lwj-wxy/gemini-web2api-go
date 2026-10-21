@@ -189,6 +189,28 @@
   .btn.danger { background: transparent; color: var(--fail); box-shadow: inset 0 0 0 1px var(--outline); }
   .btn.danger:hover { background: var(--fail-bg); }
   .btn[disabled] { opacity: .38; cursor: default; pointer-events: none; }
+  .cookie-table { min-width: 1050px; }
+  .cookie-actions-col { text-align: right; }
+  .cookie-actions { display: flex; justify-content: flex-end; align-items: center; gap: 8px; }
+  .cookie-actions .btn { display: inline-flex; align-items: center; justify-content: center;
+                         gap: 5px; padding: 5px 12px; min-height: 32px; font-size: 12px; }
+  .cookie-menu-caret { flex: none; transition: transform .15s; }
+  [data-cookie-more][aria-expanded="true"] .cookie-menu-caret { transform: rotate(180deg); }
+  .cookie-action-menu { position: fixed; z-index: 40; width: 176px; padding: 6px;
+                        max-height: calc(100vh - 16px); overflow-y: auto;
+                        border: 1px solid var(--outline-soft); border-radius: 16px;
+                        background: var(--card); box-shadow: 0 8px 24px rgba(60,64,67,.16); }
+  .cookie-action-menu button { all: unset; box-sizing: border-box; display: block; width: 100%;
+                               padding: 10px 14px; border-radius: 9px; cursor: pointer;
+                               font: inherit; font-size: 13px; color: var(--text-2); }
+  .cookie-action-menu button:hover, .cookie-action-menu button:focus-visible {
+    background: var(--surface-hi); outline: none;
+  }
+  .cookie-action-menu .menu-danger { color: var(--fail); }
+  .cookie-action-menu .menu-danger:hover, .cookie-action-menu .menu-danger:focus-visible {
+    background: var(--fail-bg);
+  }
+  .cookie-menu-separator { height: 1px; margin: 5px 8px; background: var(--outline-soft); }
   .controls { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
   .controls button { background: var(--surface-hi); color: var(--text-2);
                      font-weight: 400; padding: 7px 15px; }
@@ -350,6 +372,30 @@
   .ck-extra { font-size: 12px; color: var(--muted); margin-top: 10px; line-height: 1.6; }
   /* 逐项模式列了 7 个框，窄屏下别把弹窗撑爆 */
   .modal.wide { width: min(620px, 94vw); }
+  .modal.cookie-import-modal { display: flex; flex-direction: column; max-height: calc(100dvh - 32px); }
+  .cookie-import-modal .modal-body { min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+  .cookie-import-modal > .actions { justify-content: flex-end; flex: none; }
+  .cookie-import-modal .field input { width: 100%; }
+  .cookie-import-drop { border: 1px solid var(--outline-soft); border-radius: 14px; padding: 12px; }
+  .cookie-import-drop.dragging { border-color: var(--g-blue); background: var(--bg); }
+  .cookie-import-drop textarea { display: block; min-height: 110px; margin-bottom: 10px; }
+  .cookie-import-tools { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .cookie-import-tools .btn { padding: 6px 12px; font-size: 12px; }
+  .cookie-import-status { margin: 12px 0 14px; padding: 10px 12px; border-radius: 12px;
+                          background: var(--bg); font-size: 12px; color: var(--muted); }
+  .cookie-import-status[data-state="ready"] { background: var(--ok-bg); color: var(--ok); }
+  .cookie-import-status[data-state="error"] { background: var(--fail-bg); color: var(--fail); }
+  .cookie-import-checks { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .cookie-import-status .badge { font-size: 11px; padding: 3px 7px; }
+  .cookie-import-details { margin-top: 12px; font-size: 12.5px; }
+  .cookie-import-details summary { cursor: pointer; color: var(--nav-on-fg); }
+  .cookie-import-details > div { margin-top: 12px; }
+  .cookie-import-details ol { padding-left: 20px; color: var(--muted); line-height: 1.8; }
+  .cookie-import-meta { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  @media (max-width: 520px) {
+    .modal.cookie-import-modal { padding: 20px; border-radius: 20px; }
+    .cookie-import-meta, .cookie-import-modal .ck-grid { grid-template-columns: 1fr; }
+  }
 
   @media (max-width: 1100px) { .grid-main { grid-template-columns: 1fr; } }
   @media (max-width: 900px) {
@@ -644,6 +690,7 @@ const pages = {
           <span class="controls">
             ${deadN > 0 ? '<span class="badge fail" style="margin-right:8px" title="这些号鉴权在失败，多半 cookie 过期了，建议用 Firefox 重新导出">' + deadN + ' 疑似失效</span>' : ''}
             <span class="badge ${data.enabled > 0 ? 'ok' : 'muted'}" style="margin-right:8px">${data.enabled || 0} 启用 / ${data.total || 0} 共</span>
+            <button class="btn" onclick="openBulkCookieImport()">批量导入助手</button>
             <button class="btn" onclick="addCookieAcct()">+ 导入 Cookie</button>
           </span>
         </h2>
@@ -660,7 +707,7 @@ const pages = {
           </div>
         </details>
         <div class="table-scroll">
-          <table>
+          <table class="cookie-table">
             <colgroup>
               <col style="width:48px"><col style="width:160px"><col style="width:80px">
               <col style="width:150px"><col style="width:92px"><col style="width:64px">
@@ -669,7 +716,7 @@ const pages = {
             <thead><tr>
               <th class="nw">ID</th><th class="nw">标签</th><th class="nw">状态</th>
               <th class="nw">关键 Cookie</th><th class="nw">SAPISID</th><th class="nw">失败</th>
-              <th class="nw">最近成功</th><th>最近错误</th><th class="nw">操作</th>
+              <th class="nw">最近成功</th><th>最近错误</th><th class="nw cookie-actions-col">操作</th>
             </tr></thead>
             <tbody>${items.map(a => `
               <tr class="${a.health === 'dead' ? 'row-dead' : ''}">
@@ -689,13 +736,14 @@ const pages = {
                 <td class="num nw">${a.fail_count > 0 ? '<span class="badge fail">' + a.fail_count + '</span>' : 0}</td>
                 <td class="nw" style="font-size:12px;color:var(--muted)">${a.last_ok_at ? fmt.ts(a.last_ok_at) : '—'}</td>
                 <td class="pre truncate" title="${escapeHtml(a.last_error || '')}">${escapeHtml(a.last_error || '—')}</td>
-                <td class="nw">
-                  <span class="actions">
-                    <button class="btn muted" onclick="checkCookieAcct(${a.id}, this)">检测</button>
-                    <button class="btn muted" onclick="rotateCookieAcct(${a.id}, this)">保活</button>
-                    <button class="btn muted" onclick="toggleCookieAcct(${a.id})">${a.status === 'enabled' ? '禁用' : '启用'}</button>
+                <td class="nw cookie-actions-col">
+                  <span class="cookie-actions">
                     <button class="btn muted" onclick="editCookieAcct(${a.id}, ${JSON.stringify(a.label || '').replace(/"/g, '&quot;')}, ${JSON.stringify(a.note || '').replace(/"/g, '&quot;')})">编辑</button>
-                    <button class="btn danger" onclick="delCookieAcct(${a.id})">删除</button>
+                    <button type="button" class="btn muted" data-cookie-more="${a.id}"
+                      data-enabled="${a.status === 'enabled' ? '1' : '0'}" aria-haspopup="menu"
+                      aria-controls="cookieActionMenu" aria-expanded="false" onclick="toggleCookieActions(event, this)">
+                      <span>更多</span><svg class="cookie-menu-caret" width="12" height="12" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                    </button>
                   </span>
                 </td>
               </tr>`).join('') || '<tr><td colspan="9" class="empty">Cookie 池是空的。点「+ 导入 Cookie」加一个登录态账号。</td></tr>'}
@@ -1138,6 +1186,100 @@ async function resetProxy(id) {
 }
 // Cookie 池 ────────────────────────────────────────────────────────────────
 
+// Attach the menu to body so table-scroll cannot clip it, including the last row.
+let cookieActionMenu = null;
+
+function closeCookieActions(restoreFocus = false) {
+  if (!cookieActionMenu) return;
+  const { menu, trigger } = cookieActionMenu;
+  cookieActionMenu = null;
+  menu.remove();
+  trigger.setAttribute('aria-expanded', 'false');
+  if (restoreFocus && trigger.isConnected) trigger.focus();
+}
+
+function toggleCookieActions(event, trigger) {
+  event.stopPropagation();
+  const wasOpen = cookieActionMenu && cookieActionMenu.trigger === trigger;
+  closeCookieActions();
+  if (wasOpen) return;
+  const id = Number(trigger.dataset.cookieMore);
+  if (!Number.isSafeInteger(id) || id <= 0) return;
+  const en = LANG === 'en';
+  const text = (zh, english) => en ? english : zh;
+  const menu = document.createElement('div');
+  menu.id = 'cookieActionMenu';
+  menu.className = 'cookie-action-menu';
+  menu.setAttribute('role', 'menu');
+  menu.setAttribute('aria-label', `Cookie #${id} ${text('操作', 'actions')}`);
+  menu.innerHTML = `
+    <button type="button" role="menuitem" tabindex="-1" data-cookie-action="check">${text('检测', 'Check')}</button>
+    <button type="button" role="menuitem" tabindex="-1" data-cookie-action="rotate">${text('保活', 'Keep alive')}</button>
+    <div class="cookie-menu-separator" role="separator"></div>
+    <button type="button" role="menuitem" tabindex="-1" data-cookie-action="toggle">${trigger.dataset.enabled === '1' ? text('禁用账号', 'Disable account') : text('启用账号', 'Enable account')}</button>
+    <div class="cookie-menu-separator" role="separator"></div>
+    <button type="button" role="menuitem" tabindex="-1" class="menu-danger" data-cookie-action="delete">${text('删除账号', 'Delete account')}</button>`;
+  document.body.appendChild(menu);
+  const anchor = trigger.getBoundingClientRect();
+  const bounds = menu.getBoundingClientRect();
+  const left = Math.max(8, Math.min(anchor.right - bounds.width, window.innerWidth - bounds.width - 8));
+  const below = anchor.bottom + 6;
+  const top = below + bounds.height <= window.innerHeight - 8
+    ? below : Math.max(8, Math.min(anchor.top - bounds.height - 6, window.innerHeight - bounds.height - 8));
+  menu.style.left = left + 'px';
+  menu.style.top = top + 'px';
+  trigger.setAttribute('aria-expanded', 'true');
+  cookieActionMenu = { menu, trigger };
+  menu.querySelector('[role="menuitem"]').focus();
+  menu.addEventListener('click', async (e) => {
+    const item = e.target.closest('[data-cookie-action]');
+    if (!item) return;
+    const action = item.dataset.cookieAction;
+    const originalHTML = trigger.innerHTML;
+    closeCookieActions(true);
+    try {
+      if (action === 'check' || action === 'rotate') {
+        trigger.setAttribute('aria-busy', 'true');
+        if (action === 'check') await checkCookieAcct(id, trigger);
+        else await rotateCookieAcct(id, trigger);
+      } else if (action === 'toggle') await toggleCookieAcct(id);
+      else if (action === 'delete') await delCookieAcct(id);
+    } catch (error) {
+      flash(text('操作失败：', 'Action failed: ') + error.message);
+    } finally {
+      if (trigger.isConnected) {
+        trigger.innerHTML = originalHTML;
+        trigger.disabled = false;
+        trigger.removeAttribute('aria-busy');
+      }
+    }
+  });
+}
+
+document.addEventListener('pointerdown', (event) => {
+  if (cookieActionMenu && !cookieActionMenu.menu.contains(event.target) && !cookieActionMenu.trigger.contains(event.target)) {
+    closeCookieActions();
+  }
+});
+document.addEventListener('keydown', (event) => {
+  if (!cookieActionMenu) return;
+  if (event.key === 'Escape') {
+    event.preventDefault(); closeCookieActions(true); return;
+  }
+  if (event.key === 'Tab') { closeCookieActions(true); return; }
+  if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
+  event.preventDefault();
+  const items = [...cookieActionMenu.menu.querySelectorAll('[role="menuitem"]')];
+  const current = items.indexOf(document.activeElement);
+  const next = event.key === 'Home' ? 0 : event.key === 'End' ? items.length - 1
+    : (current + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
+  items[next].focus();
+});
+document.addEventListener('scroll', (event) => {
+  if (cookieActionMenu && event.target !== cookieActionMenu.menu) closeCookieActions();
+}, true);
+window.addEventListener('resize', () => closeCookieActions());
+
 // 逐项模式列出的 cookie。顺序按"从 DevTools 里找的难易"排，不是字母序。
 // req 只标 SAPISID：后端也只强制这一项（要用它算 SAPISIDHASH 授权头），
 // 其余缺了不一定不能用，标成必填会把能用的号挡在外面。
@@ -1164,128 +1306,251 @@ function joinCookieObj(obj) {
     .map(([k, v]) => `${k}=${String(v).trim()}`).join('; ');
 }
 
+function cookieImportText(zh, en) { return LANG === 'en' ? en : zh; }
+
+// Parse locally. Never execute pasted commands or send unrelated exported data.
+function parseCookieImport(input) {
+  const text = (zh, en) => cookieImportText(zh, en);
+  const raw = String(input || '').trim();
+  if (!raw) throw new Error(text('请先粘贴 Cookie 或选择导出文件。', 'Paste cookies or choose an export file first.'));
+  if (raw.length > 2 * 1024 * 1024) throw new Error(text('内容超过 2 MB，请只导出当前账号的 Cookie。', 'Content exceeds 2 MB. Export cookies for one account only.'));
+  const cookies = Object.create(null);
+  const allowedDomain = domain => {
+    const host = String(domain || '').toLowerCase().replace(/^\./, '');
+    return !host || host === 'google.com' || host === 'gemini.google.com';
+  };
+  const add = (name, value, domain) => {
+    if (!allowedDomain(domain)) return;
+    if (typeof value !== 'string' || !value.trim()) return;
+    name = String(name).trim(); value = value.trim();
+    if (!/^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/.test(name) || /[;\x00-\x1f\x7f]/.test(value)) {
+      throw new Error(text('Cookie 格式不正确，请复制完整的 Cookie 值。', 'Invalid cookie format. Copy the full cookie value.'));
+    }
+    if (name === '__Secure-1PSID' && cookies[name] && cookies[name] !== value) {
+      throw new Error(text('检测到多个登录会话，请每次只导入一个账号。', 'Multiple login sessions found. Import one account at a time.'));
+    }
+    cookies[name] = value;
+  };
+  const pairs = value => {
+    for (const part of value.split(';')) {
+      if (!part.trim()) continue;
+      const at = part.indexOf('=');
+      if (at < 1) throw new Error(text('没有识别到 Cookie 名称和值，请重新复制。', 'Cookie name/value pairs were not recognized.'));
+      add(part.slice(0, at), part.slice(at + 1));
+    }
+  };
+  let format = 'cookie';
+  if (/^[\[{]/.test(raw)) {
+    format = 'json';
+    let parsed;
+    try { parsed = JSON.parse(raw); }
+    catch (_) { throw new Error(text('JSON 不完整或格式错误，请重新导出。', 'JSON is incomplete or invalid. Export it again.')); }
+    const rows = Array.isArray(parsed) ? parsed : parsed && Array.isArray(parsed.cookies) ? parsed.cookies : null;
+    if (rows) {
+      for (const item of rows) {
+        if (item && typeof item === 'object' && typeof item.name === 'string') add(item.name, item.value, item.domain);
+      }
+    } else if (parsed && typeof parsed === 'object' && typeof parsed.cookie === 'string') {
+      pairs(parsed.cookie);
+      if (!cookies.SAPISID && typeof parsed.sapisid === 'string') add('SAPISID', parsed.sapisid);
+    } else if (parsed && typeof parsed === 'object' && typeof parsed.name === 'string' && 'value' in parsed) {
+      add(parsed.name, parsed.value, parsed.domain);
+    } else if (parsed && typeof parsed === 'object') {
+      for (const [name, value] of Object.entries(parsed)) add(name, value);
+    }
+  } else if (/^curl(?:\.exe)?\s/i.test(raw)) {
+    format = 'curl';
+    const command = raw.replace(/\^(['"])/g, '$1');
+    const target = command.match(/https?:\/\/([^/\s'"]+)/i);
+    if (target && !allowedDomain(target[1].replace(/:443$/, ''))) {
+      throw new Error(text('请选择发往 gemini.google.com 的请求。', 'Choose a request to gemini.google.com.'));
+    }
+    const options = /(?:^|\s)(-b|--cookie|-H|--header)(?:=|\s+)(['"])([\s\S]*?)\2/g;
+    let option;
+    while ((option = options.exec(command))) {
+      if (option[1] === '-b' || option[1] === '--cookie') pairs(option[3]);
+      else if (/^cookie\s*:/i.test(option[3])) pairs(option[3].replace(/^cookie\s*:\s*/i, ''));
+    }
+  } else if (raw.includes('\t')) {
+    const lines = raw.split(/\r?\n/).filter(line => line.trim() && (!line.startsWith('#') || line.startsWith('#HttpOnly_')));
+    format = 'table';
+    for (let line of lines) {
+      line = line.replace(/^#HttpOnly_/, '');
+      const cells = line.split('\t');
+      if (/^(name|名称)$/i.test(cells[0].trim())) continue;
+      if (cells.length >= 7 && /^(TRUE|FALSE)$/i.test(cells[1])) {
+        format = 'netscape'; add(cells[5], cells.slice(6).join('\t'), cells[0]);
+      } else if (cells.length >= 2) add(cells[0], cells[1], cells[2]);
+    }
+  } else {
+    if (/^\s*set-cookie\s*:/im.test(raw)) throw new Error(text('这是响应 Set-Cookie，请复制请求中的 Cookie。', 'This is a Set-Cookie response. Copy the request Cookie header instead.'));
+    const headers = [...raw.matchAll(/^\s*cookie\s*:\s*([^\r\n]+)/gim)];
+    if (headers.length) {
+      format = 'header';
+      for (const header of headers) pairs(header[1]);
+    } else pairs(raw);
+  }
+  if (!Object.keys(cookies).length) throw new Error(text('未识别到 Google Cookie，请检查复制内容或导出文件。', 'No Google cookies found. Check the copied content or export file.'));
+  return { cookies, format };
+}
+
+function openBulkCookieImport() {
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.innerHTML = '<section class="modal" style="width:min(1160px,96vw);max-height:96dvh;display:flex;flex-direction:column;padding:18px" role="dialog" aria-modal="true" aria-label="批量导入助手"><div style="display:flex;align-items:center;gap:12px;margin-bottom:10px"><h3 style="margin:0;flex:1">批量导入助手</h3><button class="btn muted" type="button" data-close-bulk>关闭</button></div><iframe title="批量账号导入与安全验证" src="import-assistant/" referrerpolicy="no-referrer" style="width:100%;height:min(780px,82dvh);border:0;border-radius:12px"></iframe></section>';
+  const close = () => { overlay.remove(); document.removeEventListener('keydown', onKey); refreshPage(); };
+  const onKey = event => { if (event.key === 'Escape') close(); };
+  overlay.querySelector('[data-close-bulk]').onclick = close;
+  overlay.onclick = event => { if (event.target === overlay) close(); };
+  document.addEventListener('keydown', onKey);
+  document.body.appendChild(overlay);
+}
+
 async function addCookieAcct() {
-  // 两个模式共用这一份状态，切 tab 时互相带过去。extras 存的是不在
-  // COOKIE_KEYS 里的项——整串粘贴进来的 cookie 往往还带一堆别的，
-  // 切到逐项再切回去不能把它们弄丢。
-  let extras = {};
-
+  const text = (zh, en) => cookieImportText(zh, en);
+  const required = ['__Secure-1PSID', 'SAPISID'];
+  let extras = Object.create(null);
+  let submitting = false;
+  let refreshImportStatus = () => {};
   const data = await buildModal({
-    title: '导入 Cookie',
+    title: text('导入 Cookie', 'Import cookies'),
     wide: true,
-    desc: '浏览器 F12 → Application → Cookies → 选 <code>https://gemini.google.com</code>。逐项抄或整串粘贴都行，两种填法可随时切换，已填的内容会带过去。',
+    desc: text('一次粘贴或选择导出文件，自动识别并整理，无需逐项抄写。', 'Paste once or choose an export file. Cookies are recognized automatically.'),
     bodyHTML: `
-      <div class="field">
-        <label>标签</label>
-        <input data-name="label" type="text" placeholder="例如账号邮箱，可留空" />
-        <div class="hint">仅用于面板里区分账号，不参与请求。</div>
-      </div>
-
-      <div class="segbar" data-role="seg">
-        <button type="button" data-mode="raw" class="on">整串粘贴（推荐）</button>
-        <button type="button" data-mode="fields">逐项填写</button>
-      </div>
-
-      <div data-pane="fields" style="display:none;">
-        <div class="ck-grid">
-          ${COOKIE_KEYS.map(c => `
-            <div class="field${c.k.length > 12 ? ' wide' : ''}">
-              <label>${escapeHtml(c.k)}${c.req ? ' <span class="req">*</span>' : ''}</label>
-              <input data-ck="${escapeHtml(c.k)}" type="text" autocomplete="off" spellcheck="false"
-                     placeholder="${escapeHtml(c.hint || '')}" />
-            </div>`).join('')}
-        </div>
-        <div class="ck-extra" data-role="extras"></div>
-        <div class="ck-extra">前三项是同类项目实践里的最小可用集合，下面四项补齐更稳。
-        抓包实测浏览器每次实际会发 <b>20 多个</b> cookie，而我们把整串原样转发
-        （代码里只解析 SAPISID 用来算授权头），所以
-        <b>整串粘贴比逐项填更接近真实浏览器</b>；逐项模式适合手头只有零散几项时用。</div>
-      </div>
-
-      <div data-pane="raw">
-        <div class="field">
-          <textarea data-name="cookie" rows="6" spellcheck="false"
-            placeholder="SID=...; HSID=...; SSID=...; APISID=...; SAPISID=...; __Secure-1PSID=...; __Secure-1PSIDTS=..."></textarea>
-          <div class="hint">整行粘贴，分号分隔。至少要含 SAPISID 和 __Secure-1PSID。
-          建议用 Firefox 导出（Chrome 新版本的会话绑在设备上，续不了）。DevTools 里全选复制即可，
-          多余的项会一并保留 —— 发得越全越像真实浏览器。</div>
+      <div class="cookie-import-drop" data-role="dropzone">
+        <textarea data-name="cookie" rows="4" spellcheck="false" autocomplete="off" maxlength="2097152"
+          aria-label="${text('Cookie 内容', 'Cookie content')}"
+          placeholder="${text('粘贴 Cookie 整串、复制为 cURL 的请求或导出的 Cookie JSON…', 'Paste a Cookie header, a copied cURL request, or exported cookie JSON…')}"></textarea>
+        <div class="cookie-import-tools">
+          <button type="button" class="btn muted" data-role="choose-file">${text('选择文件', 'Choose file')}</button>
+          <input type="file" data-role="cookie-file" accept=".json,.txt,application/json,text/plain" hidden>
+          <span class="hint">${text('支持 JSON / TXT，也可拖入此处', 'JSON / TXT supported; drag a file here')}</span>
         </div>
       </div>
-
-      <div class="field" style="margin-top:14px;">
-        <label>备注</label>
-        <input data-name="note" type="text" placeholder="可留空" />
-      </div>`,
-    submitText: '导入',
+      <div class="cookie-import-status" data-role="import-status" role="status" aria-live="polite">
+        ${text('粘贴后自动检查关键项。', 'Key cookies are checked after pasting.')}
+      </div>
+      <details class="cookie-import-details" data-role="import-help">
+        <summary>${text('如何一次复制？', 'How do I copy everything at once?')}</summary>
+        <div><ol>
+          <li>${text('在浏览器登录 gemini.google.com，按 F12 打开「网络 / Network」，刷新页面。', 'Sign in to gemini.google.com, open DevTools → Network, then reload the page.')}</li>
+          <li>${text('选择 gemini.google.com 的已登录请求，右键 → 复制 → 复制为 cURL（bash），整段粘贴到上方。也可只复制请求标头中的 Cookie 值。', 'Choose a signed-in request to gemini.google.com. Right-click → Copy → Copy as cURL (bash), then paste it above. You can also copy the request Cookie header value.')}</li>
+        </ol><p class="hint" style="margin-top:8px;">${text('已有 Cookie 导出工具时，可直接选择 JSON 或 Netscape TXT 文件。只提取 Google Cookie，不执行粘贴的命令。', 'You can also choose a cookie JSON or Netscape TXT export. Only Google cookies are extracted; pasted commands are never executed.')}</p></div>
+      </details>
+      <details class="cookie-import-details">
+        <summary>${text('标签和备注（选填）', 'Label and note (optional)')}</summary>
+        <div class="cookie-import-meta">
+          <div class="field"><label class="label">${text('标签', 'Label')}</label><input data-name="label" type="text" placeholder="${text('例如账号邮箱', 'For example, account email')}"></div>
+          <div class="field"><label class="label">${text('备注', 'Note')}</label><input data-name="note" type="text" placeholder="${text('可留空', 'Optional')}"></div>
+        </div>
+      </details>
+      <details class="cookie-import-details" data-role="manual-fields">
+        <summary>${text('逐项填写（备用）', 'Enter individual values (alternative)')}</summary>
+        <div class="ck-grid">${COOKIE_KEYS.map(c => `
+          <div class="field${c.k.length > 12 ? ' wide' : ''}">
+            <label>${escapeHtml(c.k)}${required.includes(c.k) ? ' <span class="req">*</span>' : ''}</label>
+            <input data-ck="${escapeHtml(c.k)}" type="text" autocomplete="off" spellcheck="false">
+          </div>`).join('')}</div>
+        <p class="hint" style="margin-top:8px;">${text('已识别的其他 Cookie 会保留，不会因逐项修改而丢失。', 'Other recognized cookies are preserved when editing individual values.')}</p>
+      </details>`,
+    submitText: text('导入', 'Import'),
     onReady: (overlay) => {
+      overlay.querySelector('.modal').classList.add('cookie-import-modal');
       const $ = (s) => overlay.querySelector(s);
       const inputs = () => [...overlay.querySelectorAll('[data-ck]')];
       const ta = $('[data-name=cookie]');
-
-      const fieldsToRaw = () => {
-        const obj = {};
-        inputs().forEach(el => { if (el.value.trim()) obj[el.dataset.ck] = el.value.trim(); });
-        ta.value = joinCookieObj({ ...obj, ...extras });
+      const status = $('[data-role=import-status]');
+      const ok = $('[data-act=ok]');
+      const fileInput = $('[data-role=cookie-file]');
+      const zone = $('[data-role=dropzone]');
+      $('[data-act=cancel]').textContent = text('取消', 'Cancel');
+      let revision = 0;
+      const showError = message => {
+        status.dataset.state = 'error'; status.textContent = message; ok.disabled = true;
       };
-      const rawToFields = () => {
-        const obj = parseCookieStr(ta.value);
+      const updateStatus = (syncFields = true) => {
+        let parsed;
+        try { parsed = parseCookieImport(ta.value); }
+        catch (error) {
+          extras = Object.create(null);
+          if (syncFields) inputs().forEach(input => { input.value = ''; });
+          if (!ta.value.trim()) {
+            status.dataset.state = ''; status.textContent = text('粘贴后自动检查关键项。', 'Key cookies are checked after pasting.'); ok.disabled = true;
+          } else showError(error.message);
+          return;
+        }
+        const obj = parsed.cookies;
         const known = new Set(COOKIE_KEYS.map(c => c.k));
-        extras = {};
+        extras = Object.create(null);
         Object.entries(obj).forEach(([k, v]) => { if (!known.has(k)) extras[k] = v; });
-        inputs().forEach(el => { el.value = obj[el.dataset.ck] || ''; });
-        const n = Object.keys(extras).length;
-        $('[data-role=extras]').textContent = n
-          ? `另有 ${n} 项未在上面列出（${Object.keys(extras).slice(0, 4).join(', ')}${n > 4 ? ' …' : ''}），会一并保留。`
-          : '';
+        if (syncFields) inputs().forEach(input => { input.value = obj[input.dataset.ck] || ''; });
+        const missing = required.filter(key => !obj[key]);
+        const formats = {cookie: ['Cookie 整串', 'Cookie string'], header: ['请求标头', 'Request headers'], json: ['JSON', 'JSON'], curl: ['cURL', 'cURL'], netscape: ['Netscape TXT', 'Netscape TXT'], table: ['浏览器表格', 'Browser table']};
+        const format = formats[parsed.format];
+        status.dataset.state = missing.length ? '' : 'ready';
+        status.innerHTML = `<div>${text('已识别', 'Recognized')} ${Object.keys(obj).length} ${text('项', 'cookies')} · ${format[LANG === 'en' ? 1 : 0]}</div>
+          <div class="cookie-import-checks">${required.map(key => `<span class="badge ${obj[key] ? 'ok' : 'warn'}">${obj[key] ? '✓' : text('缺', 'Missing')} ${key}</span>`).join('')}</div>
+          <div style="margin-top:6px;">${missing.length ? text('还缺少：', 'Missing: ') + missing.join('、') : text('关键项齐全，可以导入；登录有效性可在导入后检测。', 'Required cookies are present. Import, then check login validity.')}</div>`;
+        ok.disabled = submitting || missing.length > 0;
       };
-
-      overlay.querySelectorAll('[data-role=seg] button').forEach(btn => {
-        btn.onclick = () => {
-          const mode = btn.dataset.mode;
-          if (mode === 'raw') fieldsToRaw(); else rawToFields();
-          overlay.querySelectorAll('[data-role=seg] button')
-            .forEach(b => b.classList.toggle('on', b === btn));
-          $('[data-pane=fields]').style.display = mode === 'fields' ? '' : 'none';
-          $('[data-pane=raw]').style.display = mode === 'raw' ? '' : 'none';
-        };
+      refreshImportStatus = () => updateStatus(false);
+      ta.addEventListener('input', () => { revision++; updateStatus(); });
+      $('[data-role=manual-fields]').addEventListener('toggle', () => {
+        if ($('[data-role=manual-fields]').open) updateStatus();
       });
-      // 在逐项模式里直接粘贴一整串时自动拆开，省得用户先去切 tab
-      inputs().forEach(el => el.addEventListener('paste', (ev) => {
-        const txt = (ev.clipboardData || window.clipboardData).getData('text') || '';
-        if (!txt.includes(';') || !txt.includes('=')) return;
-        ev.preventDefault();
-        ta.value = txt.trim();
-        rawToFields();
+      inputs().forEach(input => input.addEventListener('input', () => {
+        revision++;
+        const obj = { ...extras };
+        inputs().forEach(field => { if (field.value.trim()) obj[field.dataset.ck] = field.value.trim(); });
+        ta.value = joinCookieObj(obj); updateStatus(false);
       }));
+      const readFiles = async files => {
+        const ticket = ++revision;
+        if (files.length !== 1) { showError(text('每次请选择一个账号的导出文件。', 'Choose one account export at a time.')); return; }
+        if (files[0].size > 2 * 1024 * 1024) { showError(text('文件超过 2 MB，请只导出当前账号的 Cookie。', 'File exceeds 2 MB. Export cookies for one account only.')); return; }
+        try {
+          const content = await files[0].text();
+          if (ticket !== revision || !overlay.isConnected) return;
+          ta.value = content; updateStatus();
+        } catch (_) { if (ticket === revision) showError(text('无法读取文件，请重新选择。', 'Unable to read the file. Choose it again.')); }
+        finally { fileInput.value = ''; }
+      };
+      $('[data-role=choose-file]').onclick = () => fileInput.click();
+      fileInput.onchange = () => { if (fileInput.files.length) readFiles(fileInput.files); };
+      zone.addEventListener('dragover', event => { event.preventDefault(); zone.classList.add('dragging'); });
+      zone.addEventListener('dragleave', () => zone.classList.remove('dragging'));
+      zone.addEventListener('drop', event => {
+        event.preventDefault(); zone.classList.remove('dragging');
+        if (event.dataTransfer.files.length) readFiles(event.dataTransfer.files);
+      });
+      updateStatus();
     },
-    onSubmit: (overlay) => {
+    onSubmit: async (overlay) => {
+      if (submitting) return false;
       const label = (overlay.querySelector('[data-name=label]').value || '').trim();
       const note = (overlay.querySelector('[data-name=note]').value || '').trim();
-      const isRaw = overlay.querySelector('[data-role=seg] button.on').dataset.mode === 'raw';
-      let cookie;
-      if (isRaw) {
-        cookie = (overlay.querySelector('[data-name=cookie]').value || '').trim();
-      } else {
-        const obj = {};
-        overlay.querySelectorAll('[data-ck]').forEach(el => {
-          if (el.value.trim()) obj[el.dataset.ck] = el.value.trim();
-        });
-        cookie = joinCookieObj(obj);
+      let parsed;
+      try { parsed = parseCookieImport(overlay.querySelector('[data-name=cookie]').value); }
+      catch (error) { return { error: error.message }; }
+      const missing = required.filter(key => !parsed.cookies[key]);
+      if (missing.length) return { error: text('还缺少：', 'Missing: ') + missing.join('、') };
+      const ok = overlay.querySelector('[data-act=ok]');
+      submitting = true; ok.disabled = true; ok.textContent = text('正在导入…', 'Importing…');
+      try {
+        const response = await fetch('api/cookies', { method: 'POST', credentials: 'include',
+          headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ label, note, cookie: joinCookieObj(parsed.cookies) }) });
+        const result = await response.json();
+        if (!response.ok || result.error) return { error: text('导入失败：', 'Import failed: ') + (result.error || response.status) };
+        return result;
+      } catch (_) {
+        return { error: text('导入失败，内容已保留，请检查连接后重试。', 'Import failed. Your input is preserved; check the connection and retry.') };
+      } finally {
+        submitting = false; ok.textContent = text('导入', 'Import'); refreshImportStatus();
       }
-      if (!cookie) return { error: 'Cookie 不能为空' };
-      if (!cookie.includes('SAPISID')) return { error: 'cookie 里没有 SAPISID，多半没复制全' };
-      return { label, cookie, note };
     },
   });
   if (!data) return;
-  const r = await fetch('api/cookies', {
-    method: 'POST', credentials: 'include',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(data),
-  });
-  const j = await r.json();
-  if (j.error) return flash('导入失败：' + j.error);
-  flash('Cookie 已导入 #' + j.id);
+  flash(text('Cookie 已导入 #', 'Cookies imported #') + data.id);
   await refreshPage();
 }
 
@@ -1610,6 +1875,7 @@ let pageSeq = 0;
 // 用户看到的只是抖动。要重新取数有「刷新」按钮，走 refreshPage()。
 async function switchPage(name, force = false) {
   if (!force && name === currentPage) return;
+  closeCookieActions();
   const seq = ++pageSeq;
   currentPage = name;
 
@@ -1748,6 +2014,7 @@ async function loadSideStat() {
 }
 
 function renderLogin() {
+  closeCookieActions();
   document.getElementById('app').innerHTML = `
     <div class="login-box">
       <h1><span class="spark" style="width:20px;height:20px;background:var(--g-sweep);
@@ -1786,6 +2053,7 @@ const I18N_EN = {
   '设置': 'Settings',
   '运行中': 'Running',
   '无法连接': 'Disconnected',
+  '更多': 'More',
   '收起 / 展开': 'Collapse / Expand',
   '收起或展开侧边栏': 'Collapse or expand sidebar',
   '退出登录': 'Log out',
