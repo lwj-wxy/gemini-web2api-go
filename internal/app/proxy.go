@@ -39,6 +39,8 @@ var (
 // 这条路径每个请求都会走（recordProxyResult 结束就调），而 WAL 模式下并发
 // UPDATE 期间 rows.Next() 完全可能返回 SQLITE_BUSY，所以"偶发"就是这么来的。
 func loadProxies() {
+	proxyReloadMu.Lock()
+	defer proxyReloadMu.Unlock()
 	rows, err := getDB().Query(`SELECT id, name, url, enabled, weight, fail_count,
         COALESCE(last_used,0), COALESCE(last_error,''), created_at FROM proxies ORDER BY id`)
 	if err != nil {
@@ -323,6 +325,11 @@ func recordProxyResult(id int64, success bool, errStr string) {
 // CRUD ───────────────────────────────────────────────────────────────────────
 
 func proxyCreate(name, url string, weight int) (int64, error) {
+	proxyMutationMu.Lock()
+	defer proxyMutationMu.Unlock()
+	if strings.HasPrefix(name, "to-mihomo:") && kvGet(deletedManagedProxyKey(name)) != "" {
+		return 0, errManagedProxyDeleted
+	}
 	if name == "" || url == "" {
 		return 0, errors.New("name and url required")
 	}
@@ -394,10 +401,7 @@ func proxyUpdate(id int64, name, url string, enabled *bool, weight *int) error {
 }
 
 func proxyDelete(id int64) error {
-	_, err := getDB().Exec(`DELETE FROM proxies WHERE id=?`, id)
-	if err == nil {
-		loadProxies()
-	}
+	_, err := proxyDeleteMany([]int64{id})
 	return err
 }
 

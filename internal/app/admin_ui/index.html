@@ -217,7 +217,7 @@
   .controls button:hover { background: var(--surface-press); }
   .actions { display: flex; gap: 6px; flex-wrap: wrap; }
 
-  select, input[type=text], input[type=password], input[type=number], textarea {
+  select, input[type=text], input[type=search], input[type=password], input[type=number], textarea {
     font-family: var(--sans); font-size: 13px; color: var(--text);
     background: var(--surface-hi); border: 1px solid transparent;
     border-radius: 10px; padding: 8px 12px; outline: none; transition: border-color .15s;
@@ -320,6 +320,13 @@
   .page-fill { display: flex; flex-direction: column;
                height: calc(100vh - var(--topbar-h) - 44px); margin-bottom: 0; }
   .table-scroll { flex: 1; min-height: 0; overflow: auto; }
+  .proxy-toolbar { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin:12px 0; }
+  .proxy-toolbar input[type="search"] { flex:1; min-width:180px; max-width:420px; }
+  .proxy-selection { font-size:13px; color:var(--muted); }
+  input.proxy-check { width:17px; height:17px; padding:0; cursor:pointer; accent-color:var(--nav-on-fg); }
+  .proxy-table { min-width:920px; }
+  .proxy-heading { flex-wrap:wrap; gap:10px; }
+  .proxy-heading .controls { flex-wrap:wrap; }
   .table-scroll thead th { position: sticky; top: 0; z-index: 1; background: var(--card); }
   .pager { display: flex; align-items: center; justify-content: space-between;
            gap: 12px; padding-top: 14px; margin-top: 4px; flex-wrap: wrap;
@@ -419,6 +426,7 @@
 </head>
 <body>
 <div id="app"></div>
+<script src="proxy-pool.js"></script>
 <script>
 // 单出口能打多少次的实测区间是 80-180，取下沿当参考线。
 // 它不是一条硬线：能打多少主要看连接复用和出口质量，而平缓节奏几乎打不满。
@@ -629,10 +637,15 @@ const pages = {
 
   proxies: async () => {
     const data = await api('api/proxies');
+    if (data.error) throw new Error(data.error);
+    ProxyPoolUI.setItems(data.items || []);
     return `
       <div class="panel page-fill">
-        <h2>代理池
-          <span class="controls"><button class="btn" onclick="addProxy()">+ 添加代理</button></span>
+        <h2 class="proxy-heading">代理池
+          <span class="controls">
+            <button class="btn muted" onclick="showProxySubscription()">订阅配置</button>
+            <button class="btn" data-proxy-action onclick="addProxy()">+ 添加代理</button>
+          </span>
         </h2>
         <details class="note">
           <summary>每个代理是一个独立 IP slot</summary>
@@ -646,34 +659,29 @@ const pages = {
             实测单个出口打 80-180 次就会被 Google 拦，所以扩容只能靠加出口。
           </div>
         </details>
+        <div class="proxy-toolbar">
+          <input type="search" id="proxySearch" aria-label="搜索代理" placeholder="搜索名称、地址或 ID" value="${escapeHtml(ProxyPoolUI.query)}" oninput="ProxyPoolUI.filter()">
+          <select id="proxyStatus" aria-label="代理状态" onchange="ProxyPoolUI.filter()">
+            <option value="">全部状态</option><option value="enabled" ${ProxyPoolUI.status === 'enabled' ? 'selected' : ''}>已启用</option>
+            <option value="disabled" ${ProxyPoolUI.status === 'disabled' ? 'selected' : ''}>已禁用</option>
+          </select>
+          <button class="btn muted" id="proxySelectDisabled" onclick="ProxyPoolUI.selectDisabled()">选择已禁用</button>
+          <button class="btn danger" id="proxyDeleteSelected" disabled onclick="ProxyPoolUI.deleteSelected()">删除所选</button>
+          <span class="proxy-selection" id="proxySelectionCount" role="status" aria-live="polite"></span>
+        </div>
         <div class="table-scroll">
-          <table>
+          <table class="proxy-table">
             <colgroup>
-              <col style="width:56px"><col style="width:150px"><col>
+              <col style="width:40px"><col style="width:56px"><col style="width:150px"><col>
               <col style="width:88px"><col style="width:80px"><col style="width:200px">
               <col style="width:186px">
             </colgroup>
             <thead><tr>
+              <th><input class="proxy-check" id="proxySelectAll" type="checkbox" aria-label="全选当前筛选结果" onchange="ProxyPoolUI.selectVisible(this.checked)"></th>
               <th class="nw">ID</th><th class="nw">名称</th><th>代理 URL</th><th class="nw">状态</th>
               <th class="nw">失败</th><th class="nw">最近错误</th><th class="nw">操作</th>
             </tr></thead>
-            <tbody>${(data.items || []).map(p => `
-              <tr>
-                <td class="num nw">${p.id}</td>
-                <td class="truncate" title="${escapeHtml(p.name)}">${escapeHtml(p.name)}</td>
-                <td class="pre truncate" title="${escapeHtml(p.url)}">${escapeHtml(p.url)}</td>
-                <td class="nw">${p.enabled ? '<span class="badge ok">已启用</span>' : '<span class="badge muted">已禁用</span>'}</td>
-                <td class="num nw">${p.fail_count > 0 ? '<span class="badge fail">' + p.fail_count + '</span>' : p.fail_count}</td>
-                <td class="pre truncate" title="${escapeHtml(p.last_error || '')}">${escapeHtml(p.last_error || '—')}</td>
-                <td class="nw">
-                  <span class="actions">
-                    <button class="btn muted" onclick="toggleProxy(${p.id})">${p.enabled ? '禁用' : '启用'}</button>
-                    <button class="btn muted" onclick="resetProxy(${p.id})">重置</button>
-                    <button class="btn danger" onclick="delProxy(${p.id})">删除</button>
-                  </span>
-                </td>
-              </tr>`).join('') || '<tr><td colspan="7" class="empty">还没有代理。点「+ 添加代理」加一个。</td></tr>'}
-            </tbody>
+            <tbody id="proxyRows">${ProxyPoolUI.rows()}</tbody>
           </table>
         </div>
       </div>
@@ -1913,6 +1921,7 @@ async function switchPage(name, force = false) {
     document.getElementById('reqSize').onchange = () => { reqOffset = 0; loadReqs(); };
     await loadReqs();
   }
+  if (name === 'proxies') ProxyPoolUI.updateSelection();
   if (name === 'settings') {
     await loadRtCfg();
   }
@@ -2049,6 +2058,14 @@ const I18N_EN = {
   '概览': 'Overview',
   '请求记录': 'Requests',
   '代理池': 'Proxy Pool',
+  '订阅配置': 'Subscription setup',
+  '搜索代理': 'Search proxies',
+  '搜索名称、地址或 ID': 'Search name, address or ID',
+  '代理状态': 'Proxy status',
+  '全部状态': 'All statuses',
+  '选择已禁用': 'Select disabled',
+  '删除所选': 'Delete selected',
+  '全选当前筛选结果': 'Select all filtered proxies',
   'Cookie 池': 'Cookie Pool',
   '设置': 'Settings',
   '运行中': 'Running',
@@ -2347,6 +2364,10 @@ function toggleLang() {
   try { localStorage.setItem('lang', LANG); } catch (e) {}
   i18nApply();
   updateLangBtn();
+  if (currentPage === 'proxies' && document.getElementById('proxyRows')) {
+    document.getElementById('proxyRows').innerHTML = ProxyPoolUI.rows();
+    ProxyPoolUI.updateSelection();
+  }
 }
 
 // boot — try fetching stats; if 401, login page

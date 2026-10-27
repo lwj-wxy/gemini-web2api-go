@@ -5,6 +5,7 @@ import (
 	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"sort"
@@ -364,7 +365,39 @@ func handleAdminRequests(w http.ResponseWriter, r *http.Request) {
 func handleAdminProxies(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case "GET":
-		writeJSON(w, 200, map[string]interface{}{"items": listProxies()})
+		excluded, err := excludedManagedProxyNames()
+		if err != nil {
+			writeJSON(w, 500, map[string]string{"error": "could not load proxy exclusions"})
+			return
+		}
+		writeJSON(w, 200, map[string]interface{}{"items": listProxies(), "excluded_managed_names": excluded})
+	case "DELETE":
+		var request struct {
+			IDs []int64 `json:"ids"`
+		}
+		decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 65536))
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(&request); err != nil {
+			writeJSON(w, 400, map[string]string{"error": "bad proxy selection"})
+			return
+		}
+		var trailing any
+		if err := decoder.Decode(&trailing); err != io.EOF {
+			writeJSON(w, 400, map[string]string{"error": "bad proxy selection"})
+			return
+		}
+		deleted, err := proxyDeleteMany(request.IDs)
+		if err != nil {
+			status := http.StatusInternalServerError
+			message := "could not delete selected proxies"
+			if errors.Is(err, errInvalidProxySelection) {
+				status = http.StatusBadRequest
+				message = err.Error()
+			}
+			writeJSON(w, status, map[string]string{"error": message})
+			return
+		}
+		writeJSON(w, 200, map[string]interface{}{"deleted": deleted})
 	case "POST":
 		var p struct {
 			Name   string `json:"name"`
@@ -378,7 +411,11 @@ func handleAdminProxies(w http.ResponseWriter, r *http.Request) {
 		}
 		id, err := proxyCreate(p.Name, p.URL, p.Weight)
 		if err != nil {
-			writeJSON(w, 400, map[string]string{"error": err.Error()})
+			status := http.StatusBadRequest
+			if errors.Is(err, errManagedProxyDeleted) {
+				status = http.StatusConflict
+			}
+			writeJSON(w, status, map[string]string{"error": err.Error()})
 			return
 		}
 		writeJSON(w, 200, map[string]interface{}{"id": id})
