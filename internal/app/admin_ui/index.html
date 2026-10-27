@@ -327,6 +327,10 @@
   .proxy-table { min-width:920px; }
   .proxy-heading { flex-wrap:wrap; gap:10px; }
   .proxy-heading .controls { flex-wrap:wrap; }
+  .proxy-subscription-state { padding:12px; margin-top:14px; border-radius:12px; background:var(--surface-hi); font-size:13px; line-height:1.6; }
+  .proxy-subscription-state[data-state="failed"] { color:var(--fail); background:var(--fail-bg); }
+  .proxy-subscription-state[data-state="succeeded"] { color:var(--ok); background:var(--ok-bg); }
+  .proxy-subscription-restore { display:flex; align-items:center; gap:8px; font-size:13px; margin:14px 0 5px; }
   .table-scroll thead th { position: sticky; top: 0; z-index: 1; background: var(--card); }
   .pager { display: flex; align-items: center; justify-content: space-between;
            gap: 12px; padding-top: 14px; margin-top: 4px; flex-wrap: wrap;
@@ -427,6 +431,7 @@
 <body>
 <div id="app"></div>
 <script src="proxy-pool.js"></script>
+<script src="proxy-subscription.js"></script>
 <script>
 // 单出口能打多少次的实测区间是 80-180，取下沿当参考线。
 // 它不是一条硬线：能打多少主要看连接复用和出口质量，而平缓节奏几乎打不满。
@@ -647,6 +652,7 @@ const pages = {
             <button class="btn" data-proxy-action onclick="addProxy()">+ 添加代理</button>
           </span>
         </h2>
+        <div class="proxy-selection" id="proxySubscriptionSummary" role="status" aria-live="polite"></div>
         <details class="note">
           <summary>每个代理是一个独立 IP slot</summary>
           <div class="body">
@@ -1921,7 +1927,7 @@ async function switchPage(name, force = false) {
     document.getElementById('reqSize').onchange = () => { reqOffset = 0; loadReqs(); };
     await loadReqs();
   }
-  if (name === 'proxies') ProxyPoolUI.updateSelection();
+  if (name === 'proxies') { ProxyPoolUI.updateSelection(); ProxySubscription.startSummary(); }
   if (name === 'settings') {
     await loadRtCfg();
   }
@@ -2367,6 +2373,7 @@ function toggleLang() {
   if (currentPage === 'proxies' && document.getElementById('proxyRows')) {
     document.getElementById('proxyRows').innerHTML = ProxyPoolUI.rows();
     ProxyPoolUI.updateSelection();
+    ProxySubscription.refreshSummary();
   }
 }
 

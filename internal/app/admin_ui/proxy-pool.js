@@ -104,17 +104,5 @@ const ProxyPoolUI = {
 };
 
 function showProxySubscription() {
-  const command = 'sudo python3 /opt/toolorbit-proxy/src/cli.py configure';
-  return buildModal({
-    title: ProxyPoolUI.text('更新订阅', 'Update subscription'),
-    desc: ProxyPoolUI.text('当前使用服务器统一订阅。在服务器终端执行下方命令，再粘贴新的 Clash HTTPS 订阅地址。保存后会自动检测并同步节点。',
-      'Subscriptions are managed centrally on the server. Run the command below in the server terminal, then paste the new Clash HTTPS subscription URL. Nodes are checked and synchronized after saving.'),
-    bodyHTML: `<textarea readonly rows="3" aria-label="${ProxyPoolUI.text('订阅配置命令', 'Subscription configuration command')}" style="width:100%;font-family:var(--mono)">${command}</textarea>
-      <p class="hint">${ProxyPoolUI.text('“添加代理”用于单个代理，不要把订阅链接填入代理 URL。', 'Add proxy accepts one proxy server, not a subscription URL.')}</p>`,
-    submitText: ProxyPoolUI.text('复制配置命令', 'Copy command'),
-    onSubmit: async overlay => {
-      try { await navigator.clipboard.writeText(command); flash(ProxyPoolUI.text('命令已复制', 'Command copied')); return true; }
-      catch (_) { overlay.querySelector('textarea').select(); return {error: ProxyPoolUI.text('请手动复制上方命令', 'Copy the command above manually')}; }
-    },
-  });
+  return ProxySubscription.open();
 }

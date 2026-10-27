@@ -1,0 +1,9 @@
+[Unit]
+Description=Watch for an authenticated subscription update request
+
+[Path]
+PathExists=/opt/gemini-web2api-go/data/proxy-subscription-request.json
+Unit=toolorbit-proxy-subscription.service
+
+[Install]
+WantedBy=multi-user.target

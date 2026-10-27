@@ -1,0 +1,20 @@
+[Unit]
+Description=Apply a validated web subscription update
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/opt/toolorbit-proxy/src
+ExecStart=/usr/bin/python3 /opt/toolorbit-proxy/src/subscription_web.py run
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/opt/toolorbit-proxy /opt/gemini-web2api-go/data
+TimeoutStartSec=2100
+MemoryMax=256M
+CPUQuota=50%

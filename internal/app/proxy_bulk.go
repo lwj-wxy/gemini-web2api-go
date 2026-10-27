@@ -38,6 +38,34 @@ func excludedManagedProxyNames() ([]string, error) {
 	return names, rows.Err()
 }
 
+// A manual subscription import may restore only the names present in its
+// validated subscription, without clearing unrelated deletion preferences.
+func restoreManagedProxyNames(names []string) (int64, error) {
+	if len(names) == 0 || len(names) > 512 {
+		return 0, errInvalidProxySelection
+	}
+	args := []any{}
+	seen := map[string]bool{}
+	for _, name := range names {
+		if !strings.HasPrefix(name, "to-mihomo:") || len(name) > 100 {
+			return 0, errInvalidProxySelection
+		}
+		key := deletedManagedProxyKey(name)
+		if !seen[key] {
+			seen[key] = true
+			args = append(args, key)
+		}
+	}
+	proxyMutationMu.Lock()
+	defer proxyMutationMu.Unlock()
+	where := "(" + strings.TrimSuffix(strings.Repeat("?,", len(args)), ",") + ")"
+	result, err := getDB().Exec("DELETE FROM kv WHERE k IN "+where, args...)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 // Clear bindings, persist deliberate managed-node removals and delete rows in
 // one transaction. Request history and all other proxy/account data are kept.
 func proxyDeleteMany(ids []int64) (int64, error) {
