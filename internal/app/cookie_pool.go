@@ -440,7 +440,7 @@ func pickCookieAccountExcept(skip map[int64]bool) (*CookieAccount, bool) {
 
 // markCookieByStatus 按上游返回回写 cookie 健康度。
 //
-// 只把明确的鉴权失败（401/403）算作 cookie 的错。网络错误、代理失败、302 → sorry
+// 只把明确的鉴权失败（401）算作 cookie 的错。403、网络错误、代理失败、302 → sorry
 // （IP 被 Google 拦）一律不计——实测住宅代理出口退化率高达 75%，把这些算进
 // fail_count 会让它变成代理噪音，好 cookie 会被误伤成"失败最多"。
 //
@@ -449,8 +449,10 @@ func markCookieByStatus(id int64, statusCode int, errStr string) {
 	switch {
 	case statusCode == 200:
 		markAccountResult(id, true, "")
-	case statusCode == 401 || statusCode == 403:
-		markAccountResult(id, false, errStr)
+	case statusCode == 401:
+		recordCookieCheckError(id, &cookieCheckError{code: "auth", detail: errStr})
+	case statusCode == 403:
+		recordCookieCheckError(id, &cookieCheckError{code: "blocked", detail: errStr})
 	default:
 		// 其余情况责任不在 cookie，不动它的健康度
 	}
@@ -462,8 +464,7 @@ func markCookieByStatus(id int64, statusCode int, errStr string) {
 // 注意 last_ok_at 的语义是"这个 cookie 参与的请求成功过"，**不等于"cookie 仍然
 // 有效"**：cookie 过期后 Gemini 不报错，只是把你当匿名用户，纯文本请求照样 200。
 // 要真正验有效性，最省事的判据是请求 gemini-3.1-pro：cookie 有效时服务端回报
-// "3.1 Pro" 并带思考链，失效时静默降级成 3.5 Flash-Lite。（xsrf.go 取 token 时
-// 若页面里没有 SNlM0e，也会当场判定 cookie 失效。）
+// "3.1 Pro" 并带思考链，失效时静默降级成 3.5 Flash-Lite。
 func markAccountResult(id int64, ok bool, errStr string) {
 	if id <= 0 {
 		return
@@ -482,9 +483,8 @@ func markAccountResult(id int64, ok bool, errStr string) {
 
 // maxCookieAuthFailures 是连续几次鉴权失败之后自动停用账号。
 //
-// 只有 401/403 会累加 fail_count（见 markCookieByStatus），网络错误和被 Google 拦
-// 都不算，所以连着 3 次基本等于 cookie 真的没了。取 3 不取 1：偶发的 XSRF 页面抖动
-// 也会走到这条路上，一次就停用会误伤。
+// 只有明确的鉴权拒绝会累加 fail_count；网络失败、403、限流和无法识别页面
+// 均不算。连续三次鉴权拒绝后停用，账号与凭据仍保留供管理员处理。
 const maxCookieAuthFailures = 3
 
 // autoDisableIfDead 把连续失败到头的账号停用。
@@ -512,6 +512,8 @@ func autoDisableIfDead(id int64) {
 // CookieCheck 是一次 cookie 有效性检测的结果。
 type CookieCheck struct {
 	OK        bool   `json:"ok"`
+	State     string `json:"state"`
+	Code      string `json:"code"`
 	Detail    string `json:"detail"`
 	ProxyName string `json:"proxy_name"`
 	TookMs    int64  `json:"took_ms"`
@@ -521,14 +523,16 @@ type CookieCheck struct {
 //
 // 判据是 /app 页面里有没有 SNlM0e：cookie 失效时 Gemini 不报错，只是把你当匿名
 // 用户，纯文本请求照样 200 —— 所以不能拿"请求成功"当有效性判据。这个页面没有
-// SNlM0e 就说明服务端没认这个登录态。
+// SNlM0e 时只能说明本次未验证成功，也可能是拦截页面或页面格式变化。
 //
 // 只抓页面，不发对话，不消耗生成配额。
 func checkAccountCookie(a CookieAccount) CookieCheck {
 	t0 := time.Now()
 	picked, ok, err := acquireSlot(a.ProxyID)
 	if !ok {
-		return CookieCheck{Detail: "拿不到出口：" + err.Error()}
+		err = &cookieCheckError{code: "exit_unavailable", detail: err.Error()}
+		recordCookieCheckError(a.ID, err)
+		return CookieCheck{State: "pending", Code: "exit_unavailable", Detail: explainCookieFailure(err), TookMs: time.Since(t0).Milliseconds()}
 	}
 	defer releaseSlot(picked.ID)
 	proxyURL := picked.URL
@@ -542,29 +546,34 @@ func checkAccountCookie(a CookieAccount) CookieCheck {
 	_, err = getXSRF(a.Cookie, proxyURL)
 	took := time.Since(t0).Milliseconds()
 	if err != nil {
-		markAccountResult(a.ID, false, err.Error())
-		return CookieCheck{Detail: explainCookieFailure(err), ProxyName: name, TookMs: took}
+		recordCookieCheckError(a.ID, err)
+		state := "pending"
+		if cookieFailureCode(err) == "auth" {
+			state = "invalid"
+		}
+		return CookieCheck{State: state, Code: cookieFailureCode(err), Detail: explainCookieFailure(err), ProxyName: name, TookMs: took}
 	}
 	markAccountResult(a.ID, true, "")
 	detail := "登录态有效"
 	if extractSAPISID(a.Cookie) == "" {
 		detail += "，但缺 SAPISID（算不出授权头，部分接口会被当匿名）"
 	}
-	return CookieCheck{OK: true, Detail: detail, ProxyName: name, TookMs: took}
+	return CookieCheck{OK: true, State: "valid", Detail: detail, ProxyName: name, TookMs: took}
 }
 
 // explainCookieFailure 把底层错误翻成运维看得懂的结论。
 func explainCookieFailure(err error) string {
-	msg := err.Error()
-	switch {
-	case strings.Contains(msg, "no SNlM0e"):
-		return "cookie 已失效：页面能打开但没有登录态，请求会被当匿名处理"
-	case strings.Contains(msg, "HTTP 302"):
-		return "cookie 无效：被重定向到登录页"
-	case strings.Contains(msg, "HTTP 429"), strings.Contains(msg, "sorry"):
-		return "出口被上游限流，换个代理再试（不是 cookie 的问题）"
+	switch cookieFailureCode(err) {
+	case "auth":
+		return "登录态未被接受：上游要求重新登录，请更新 Cookie 后检测"
+	case "network":
+		return "待验证：连接上游失败，尚未确认登录态，请检查出口后重试"
+	case "blocked", "rate_limited":
+		return "待验证：出口被拦截或限流，尚未确认登录态，请检查出口后重试"
+	case "exit_unavailable":
+		return "待验证：没有可用出口或出口容量已满，请稍后重试"
 	default:
-		return "检测失败：" + msg
+		return "待验证：页面未提供可识别的登录态，可能需要补全 Cookie 或处理安全验证"
 	}
 }
 

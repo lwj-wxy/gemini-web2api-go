@@ -34,39 +34,26 @@ func cookieAcctView(a CookieAccount) map[string]interface{} {
 	if s := extractSAPISID(a.Cookie); len(s) >= 4 {
 		tail = s[len(s)-4:]
 	}
-	// health 是给面板标红用的派生健康度（#18）。判据用 fail_count：markAccountResult
-	// 成功会把它清零、失败才 +1，而且只有 401/403 才算失败（见 markCookieByStatus），
-	// 所以 fail_count>0 就是「当前鉴权在失败」= 多半 cookie 过期了，直接标红提示重导。
-	//   dead     鉴权失败中（红）—— 不管启用还是被自动停用，只要 fail_count>0
-	//   disabled 用户手动停用且没有失败记录（灰）
-	//   unknown  还没成功用过/检测过（待检测）
-	//   ok       在用、没失败（绿）
-	health := "ok"
-	switch {
-	case a.FailCount > 0:
-		health = "dead"
-	case a.Status != "enabled":
-		health = "disabled"
-	case a.LastOkAt == 0:
-		health = "unknown"
-	}
+	health, reason := cookieAccountHealth(a)
 	return map[string]interface{}{
-		"id":           a.ID,
-		"label":        a.Label,
-		"status":       a.Status,
-		"health":       health,
-		"note":         a.Note,
-		"created_at":   a.CreatedAt,
-		"last_used_at": a.LastUsedAt,
-		"last_ok_at":   a.LastOkAt,
-		"last_error":   a.LastError,
-		"fail_count":   a.FailCount,
-		"cookie_count": len(names),
-		"key_cookies":  key,
-		"sapisid_tail": tail,
-		"has_1psidts":  nameSet["__Secure-1PSIDTS"],
-		"proxy_id":     a.ProxyID,
-		"proxy_name":   proxyNameByID(a.ProxyID),
+		"id":               a.ID,
+		"label":            a.Label,
+		"status":           a.Status,
+		"health":           health,
+		"health_reason":    reason,
+		"note":             a.Note,
+		"created_at":       a.CreatedAt,
+		"last_used_at":     a.LastUsedAt,
+		"last_ok_at":       a.LastOkAt,
+		"last_error":       a.LastError,
+		"fail_count":       a.FailCount,
+		"cookie_count":     len(names),
+		"key_cookies":      key,
+		"key_cookie_total": len(keyCookieWants),
+		"sapisid_tail":     tail,
+		"has_1psidts":      nameSet["__Secure-1PSIDTS"],
+		"proxy_id":         a.ProxyID,
+		"proxy_name":       proxyNameByID(a.ProxyID),
 	}
 }
 

@@ -3,7 +3,6 @@ package app
 import (
 	"crypto/sha1"
 	"encoding/hex"
-	"fmt"
 	"io"
 	"net/http"
 	"regexp"
@@ -135,7 +134,7 @@ func fetchAppPage(cookie, proxyURL string) ([]byte, error) {
 		}
 		defer resp.Body.Close()
 		if resp.StatusCode != 200 {
-			return nil, fmt.Errorf("fetch /app: HTTP %d", resp.StatusCode)
+			return nil, appPageStatusError(resp.StatusCode, resp.Header.Get("Location"))
 		}
 		body, err = io.ReadAll(resp.Body)
 		if err != nil {
@@ -155,7 +154,7 @@ func fetchAppPage(cookie, proxyURL string) ([]byte, error) {
 		}
 		defer resp.Body.Close()
 		if resp.StatusCode != 200 {
-			return nil, fmt.Errorf("fetch /app: HTTP %d", resp.StatusCode)
+			return nil, appPageStatusError(resp.StatusCode, resp.Header.Get("Location"))
 		}
 		body, err = io.ReadAll(resp.Body)
 		if err != nil {
@@ -175,8 +174,9 @@ func fetchAppTokens(cookie, proxyURL string) (xsrfEntry, error) {
 	if m := snlm0eRe.FindSubmatch(body); m != nil {
 		e.token = string(m[1])
 	} else if cookie != "" {
-		// 带 cookie 却拿不到 token = cookie 已失效被当成匿名。匿名本就没这字段，不算错。
-		return xsrfEntry{}, fmt.Errorf("no SNlM0e in page (cookie expired or not signed in)")
+		// An unfamiliar page can also be a challenge, regional block or markup
+		// change. Missing a token alone does not prove that credentials expired.
+		return xsrfEntry{}, &cookieCheckError{code: "unverified", detail: "no SNlM0e in page (login state not verified)"}
 	}
 	if p := pushIDRe.FindSubmatch(body); p != nil {
 		e.pushID = string(p[1])

@@ -698,11 +698,13 @@ const pages = {
     const data = await api('api/cookies');
     const items = data.items || [];
     const deadN = items.filter(a => a.health === 'dead').length;
+    const pendingN = items.filter(a => a.health === 'pending').length;
     return `
       <div class="panel page-fill">
         <h2>Cookie 池
           <span class="controls">
-            ${deadN > 0 ? '<span class="badge fail" style="margin-right:8px" title="这些号鉴权在失败，多半 cookie 过期了，建议用 Firefox 重新导出">' + deadN + ' 疑似失效</span>' : ''}
+            ${deadN > 0 ? '<span class="badge fail" style="margin-right:8px" title="上游明确拒绝登录态，请更新 Cookie 后检测"><span>' + deadN + '</span> <span>登录失效</span></span>' : ''}
+            ${pendingN > 0 ? '<span class="badge warn" style="margin-right:8px" title="检测未完成，不代表 Cookie 失效"><span>' + pendingN + '</span> <span>待验证</span></span>' : ''}
             <span class="badge ${data.enabled > 0 ? 'ok' : 'muted'}" style="margin-right:8px">${data.enabled || 0} 启用 / ${data.total || 0} 共</span>
             <button class="btn" onclick="openBulkCookieImport()">批量导入助手</button>
             <button class="btn" onclick="addCookieAcct()">+ 导入 Cookie</button>
@@ -737,13 +739,14 @@ const pages = {
                 <td class="num nw">${a.id}</td>
                 <td class="truncate" title="${escapeHtml(a.label || '')}">${a.label ? escapeHtml(a.label) : '<span class="badge muted">未命名</span>'}</td>
                 <td class="nw">${
-                  a.health === 'dead' ? '<span class="badge fail" title="鉴权在失败，多半 cookie 过期了，建议用 Firefox 重新导出">疑似失效</span>'
+                  a.health === 'dead' ? '<span class="badge fail" title="上游明确拒绝登录态，请更新 Cookie 后检测">登录失效</span>'
+                  : a.health === 'pending' ? '<span class="badge warn" title="连接异常、出口拦截或页面未识别；请处理后重新检测">待验证</span>'
                   : a.health === 'disabled' ? '<span class="badge muted">禁用</span>'
                   : a.health === 'unknown' ? '<span class="badge warn" title="还没成功用过，点「检测」确认">待检测</span>'
                   : '<span class="badge ok">正常</span>'
                 }</td>
                 <td class="nw" title="共 ${a.cookie_count} 个 cookie，关键项：${(a.key_cookies||[]).join(' / ')}">
-                  <span class="badge ${a.has_1psidts ? 'ok' : 'warn'}">${(a.key_cookies||[]).length}/7 项</span>
+                  <span class="badge ${a.has_1psidts ? 'ok' : 'warn'}">${(a.key_cookies||[]).length}/${a.key_cookie_total || 9} 项</span>
                   ${a.has_1psidts ? '' : '<span class="badge warn" title="缺 __Secure-1PSIDTS，首次保活会尝试补发；失败请用 Firefox 重新导出">缺 TS</span>'}
                 </td>
                 <td class="pre nw">${a.sapisid_tail ? '…' + escapeHtml(a.sapisid_tail) : '—'}</td>
@@ -2060,6 +2063,12 @@ async function doLogin() {
 // I18N_EN 词典替换成英文；切回中文时从 ZH_ORIG 里恢复原文。渲染逻辑一行不用改，
 // 只在最外面套一层翻译。插值文案（带数字/名字的）不精确匹配、保持中文，属可接受。
 const I18N_EN = {
+  '登录失效': 'Login rejected',
+  '待验证': 'Pending verification',
+  '待检测': 'Not checked',
+  '检测未完成，不代表 Cookie 失效': 'Check incomplete; Cookie expiration is unconfirmed',
+  '连接异常、出口拦截或页面未识别；请处理后重新检测': 'Connection, egress or page recognition failed; resolve and check again',
+  '上游明确拒绝登录态，请更新 Cookie 后检测': 'Sign-in was rejected; update Cookies and check again',
   'gemini-web2api 管理面板': 'gemini-web2api Admin Panel',
   '概览': 'Overview',
   '请求记录': 'Requests',

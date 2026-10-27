@@ -409,7 +409,12 @@ func streamGenerateWithFiles(prompt, latest string, mc ModelConfig, pending []pe
 			}
 			break
 		}
-		// 取不到 SNlM0e 基本等于这个 cookie 已失效（页面把我们当匿名用户了）。
+		// A transport/egress error cannot be repaired by rotating credentials or
+		// trying other accounts through the same broken connection.
+		if code := cookieFailureCode(err); code != "auth" && code != "unverified" {
+			recordCookieCheckError(acct.ID, err)
+			return attrib(fmt.Errorf("登录态尚未验证（出口请求失败）: %w", err))
+		}
 		// 换号之前先给它一次机会：强制轮转一次再重取。
 		//
 		// 轮转会换发 __Secure-1PSIDTS（约 30 分钟过期的那张票）并合并 *SIDCC。
@@ -427,12 +432,17 @@ func streamGenerateWithFiles(prompt, latest string, mc ModelConfig, pending []pe
 							bindAccountProxy(fresh.ID, picked.ID)
 						}
 						break
+					} else {
+						err = err2
 					}
 				}
 			}
 		}
 		// 救不回来：记一次失败让面板上看得出是哪个号该换了，然后换下一个。
-		markCookieByStatus(acct.ID, 401, err.Error())
+		recordCookieCheckError(acct.ID, err)
+		if code := cookieFailureCode(err); code != "auth" && code != "unverified" {
+			return attrib(fmt.Errorf("登录态尚未验证（出口请求失败）: %w", err))
+		}
 		lastCookieErr = err
 		logf("[cookie] 账号 #%d 不可用，换下一个：%v", acct.ID, err)
 		acct, _ = pickCookieAccountExcept(tried) // 取不到时返回 nil，循环自然结束
