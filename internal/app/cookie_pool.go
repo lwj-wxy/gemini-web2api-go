@@ -549,7 +549,7 @@ func checkAccountCookie(a CookieAccount) CookieCheck {
 	_, err = getXSRF(a.Cookie, proxyURL)
 	took := time.Since(t0).Milliseconds()
 	if err != nil {
-		recordCookieCheckError(a.ID, err)
+		recordCookiePrecheckError(a.ID, picked.ID, err)
 		state := "pending"
 		if cookieFailureCode(err) == "auth" {
 			state = "invalid"

@@ -73,7 +73,7 @@ func rotateAccount(a CookieAccount) (time.Duration, []string, error) {
 		invalidateXSRF(fresh.Cookie)
 		_, checkErr := getXSRF(fresh.Cookie, picked.URL)
 		if checkErr != nil {
-			recordCookieCheckError(a.ID, checkErr)
+			recordCookiePrecheckError(a.ID, picked.ID, checkErr)
 			return interval, names, fmt.Errorf("保活后登录态待验证: %w", checkErr)
 		}
 		markAccountResult(a.ID, true, "")

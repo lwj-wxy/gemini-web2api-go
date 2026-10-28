@@ -99,6 +99,9 @@ func cookieAccountHealth(a CookieAccount) (string, string) {
 		if a.Status != "enabled" {
 			return "disabled", code
 		}
+		if a.LastOkAt > 0 && (code == "network" || code == "blocked" || code == "rate_limited" || code == "exit_unavailable") {
+			return "ok", code
+		}
 		return "pending", code
 	}
 	// Older rows may have an auth counter but no diagnostic message.
@@ -112,4 +115,14 @@ func cookieAccountHealth(a CookieAccount) (string, string) {
 		return "unknown", ""
 	}
 	return "ok", ""
+}
+
+func recordCookiePrecheckError(id, proxyID int64, err error) {
+	recordCookieCheckError(id, err)
+	switch cookieFailureCode(err) {
+	case "network", "blocked", "rate_limited":
+		if proxyID > 0 {
+			recordProxyResult(proxyID, false, "login precheck: "+err.Error())
+		}
+	}
 }

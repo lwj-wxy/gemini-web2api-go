@@ -743,7 +743,7 @@ const pages = {
                   : a.health === 'pending' ? '<span class="badge warn" title="连接异常、出口拦截或页面未识别；请处理后重新检测">待验证</span>'
                   : a.health === 'disabled' ? '<span class="badge muted">禁用</span>'
                   : a.health === 'unknown' ? '<span class="badge warn" title="还没成功用过，点「检测」确认">待检测</span>'
-                  : '<span class="badge ok">正常</span>'
+                  : '<span class="badge ok">正常</span>' + (a.health_reason ? ' <span class="badge warn" title="保留最近一次登录验证结果；当前出口请求失败"><span>连接异常</span></span>' : '')
                 }</td>
                 <td class="nw" title="共 ${a.cookie_count} 个 cookie，关键项：${(a.key_cookies||[]).join(' / ')}">
                   <span class="badge ${a.has_1psidts ? 'ok' : 'warn'}">${(a.key_cookies||[]).length}/${a.key_cookie_total || 9} 项</span>
@@ -2063,6 +2063,8 @@ async function doLogin() {
 // I18N_EN 词典替换成英文；切回中文时从 ZH_ORIG 里恢复原文。渲染逻辑一行不用改，
 // 只在最外面套一层翻译。插值文案（带数字/名字的）不精确匹配、保持中文，属可接受。
 const I18N_EN = {
+  '连接异常': 'Connection issue',
+  '保留最近一次登录验证结果；当前出口请求失败': 'Last successful login verification retained; current egress request failed',
   '登录失效': 'Login rejected',
   '待验证': 'Pending verification',
   '待检测': 'Not checked',

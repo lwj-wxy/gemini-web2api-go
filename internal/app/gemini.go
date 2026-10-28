@@ -412,7 +412,7 @@ func streamGenerateWithFiles(prompt, latest string, mc ModelConfig, pending []pe
 		// A transport/egress error cannot be repaired by rotating credentials or
 		// trying other accounts through the same broken connection.
 		if code := cookieFailureCode(err); code != "auth" && code != "unverified" {
-			recordCookieCheckError(acct.ID, err)
+			recordCookiePrecheckError(acct.ID, picked.ID, err)
 			return attrib(fmt.Errorf("登录态尚未验证（出口请求失败）: %w", err))
 		}
 		// 换号之前先给它一次机会：强制轮转一次再重取。
@@ -439,7 +439,7 @@ func streamGenerateWithFiles(prompt, latest string, mc ModelConfig, pending []pe
 			}
 		}
 		// 救不回来：记一次失败让面板上看得出是哪个号该换了，然后换下一个。
-		recordCookieCheckError(acct.ID, err)
+		recordCookiePrecheckError(acct.ID, picked.ID, err)
 		if code := cookieFailureCode(err); code != "auth" && code != "unverified" {
 			return attrib(fmt.Errorf("登录态尚未验证（出口请求失败）: %w", err))
 		}
