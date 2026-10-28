@@ -328,6 +328,7 @@ type fileRef struct {
 // 匿名能把文件传上去，但对话里一引用就被服务端回 1100。
 func streamGenerateWithFiles(prompt, latest string, mc ModelConfig, pending []pendingUpload,
 	onDelta, onReasoning func(string)) (*StreamResult, error) {
+	requestStarted := time.Now()
 	var files []fileRef
 
 	// 先挑号，再按它上次绑的出口挑代理 —— 同一个账号要尽量固定从同一个 IP 出去，
@@ -357,6 +358,7 @@ func streamGenerateWithFiles(prompt, latest string, mc ModelConfig, pending []pe
 		return &StreamResult{
 			AccountID: cookieID, AccountLabel: cookieLabel,
 			ProxyID: picked.ID, ProxyName: picked.Name,
+			TotalMs: time.Since(requestStarted).Milliseconds(),
 		}, err
 	}
 
@@ -366,7 +368,7 @@ func streamGenerateWithFiles(prompt, latest string, mc ModelConfig, pending []pe
 		return attrib(slotErr)
 	}
 	picked = p
-	defer releaseSlot(picked.ID) // picked.ID=0 表示直连 slot
+	defer func() { releaseSlot(picked.ID) }() // picked may change during GET-only preflight
 
 	// picked.URL 为空 = 直连 slot。代理只有代理池一个入口，没有别的兜底出口了
 	// （原来那个「静态代理」字段已并进池子，见 seedProxiesFromConfig）。
@@ -396,7 +398,19 @@ func streamGenerateWithFiles(prompt, latest string, mc ModelConfig, pending []pe
 		// 归属先记上：这一轮失败了也留痕，面板上看得出是哪个号在坏
 		cookieID, cookieLabel = acct.ID, accountDisplayName(acct)
 		tok, err := getXSRF(acct.Cookie, proxyURL)
+		networkRecorded := false
+		if err != nil && picked.ID > 0 && cookieFailureCode(err) == "network" {
+			recordProxyResult(picked.ID, false, "login precheck: "+err.Error())
+			networkRecorded = true
+			if next, token, ok := alternateCookiePrecheck(acct.Cookie, picked); ok {
+				releaseSlot(picked.ID)
+				picked, proxyURL, pickedOK = next, next.URL, true
+				tok, err = token, nil
+				bindAccountProxy(acct.ID, picked.ID)
+			}
+		}
 		if err == nil {
+			markAccountResult(acct.ID, true, "")
 			cookieStr, sapisid, xsrfToken = acct.Cookie, extractSAPISID(acct.Cookie), tok
 			// 只在「还没绑过」或「绑的出口已经没了」时写绑定。
 			//
@@ -412,7 +426,11 @@ func streamGenerateWithFiles(prompt, latest string, mc ModelConfig, pending []pe
 		// A transport/egress error cannot be repaired by rotating credentials or
 		// trying other accounts through the same broken connection.
 		if code := cookieFailureCode(err); code != "auth" && code != "unverified" {
-			recordCookiePrecheckError(acct.ID, picked.ID, err)
+			if networkRecorded {
+				recordCookieCheckError(acct.ID, err)
+			} else {
+				recordCookiePrecheckError(acct.ID, picked.ID, err)
+			}
 			return attrib(fmt.Errorf("登录态尚未验证（出口请求失败）: %w", err))
 		}
 		// 换号之前先给它一次机会：强制轮转一次再重取。

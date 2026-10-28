@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"crypto/sha1"
 	"encoding/hex"
 	"io"
@@ -48,13 +49,22 @@ func cookieKey(cookie string) string {
 	return hex.EncodeToString(sum[:8])
 }
 
+func xsrfCacheKey(cookie, proxyURL string) string {
+	return cookieKey(cookie) + "|" + cookieKey(proxyURL)
+}
+
 // invalidateXSRF 丢掉某个 cookie 的缓存 token，下次取会重新抓页面。
 func invalidateXSRF(cookie string) {
 	if cookie == "" {
 		return
 	}
 	xsrfMu.Lock()
-	delete(xsrfCache, cookieKey(cookie))
+	prefix := cookieKey(cookie) + "|"
+	for key := range xsrfCache {
+		if strings.HasPrefix(key, prefix) {
+			delete(xsrfCache, key)
+		}
+	}
 	xsrfMu.Unlock()
 }
 
@@ -64,7 +74,7 @@ func getXSRF(cookie, proxyURL string) (string, error) {
 	if cookie == "" {
 		return "", nil
 	}
-	key := cookieKey(cookie)
+	key := xsrfCacheKey(cookie, proxyURL)
 
 	xsrfMu.Lock()
 	if e, ok := xsrfCache[key]; ok && time.Since(e.fetched) < xsrfTTL {
@@ -85,7 +95,7 @@ func getXSRF(cookie, proxyURL string) (string, error) {
 
 // getUploadTokens 取上传要用的 Push-ID / X-Client-Pctx，跟 XSRF token 同一份缓存。
 func getUploadTokens(cookie, proxyURL string) (pushID, pctx string, err error) {
-	key := cookieKey(cookie)
+	key := xsrfCacheKey(cookie, proxyURL)
 
 	xsrfMu.Lock()
 	if e, ok := xsrfCache[key]; ok && time.Since(e.fetched) < xsrfTTL {
@@ -109,6 +119,8 @@ func getUploadTokens(cookie, proxyURL string) (pushID, pctx string, err error) {
 // 免得页面里取到的 token 和后续请求来自两个不同 IP。
 // cookie 传空串就是匿名抓（页面照样返回，只是没有登录态字段）。
 func fetchAppPage(cookie, proxyURL string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
 	const pageURL = "https://gemini.google.com/app"
 	headers := map[string]string{
 		"Accept":          "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
@@ -120,7 +132,7 @@ func fetchAppPage(cookie, proxyURL string) ([]byte, error) {
 
 	var body []byte
 	if proxyURL != "" {
-		req, err := http.NewRequest("GET", pageURL, nil)
+		req, err := http.NewRequestWithContext(ctx, "GET", pageURL, nil)
 		if err != nil {
 			return nil, err
 		}
@@ -141,7 +153,7 @@ func fetchAppPage(cookie, proxyURL string) ([]byte, error) {
 			return nil, err
 		}
 	} else {
-		req, err := fhttp.NewRequest("GET", pageURL, nil)
+		req, err := fhttp.NewRequestWithContext(ctx, "GET", pageURL, nil)
 		if err != nil {
 			return nil, err
 		}
