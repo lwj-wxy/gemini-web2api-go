@@ -2,6 +2,7 @@ package app
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"io"
 	"net/http"
@@ -108,10 +109,10 @@ func sanitizeUploadName(name string) string {
 }
 
 // uploadPost 走跟主请求相同的出口发 POST，响应头一起带回（start 要取 x-goog-upload-url）。
-func uploadPost(url string, headers map[string]string, body []byte, proxyURL string) (
+func uploadPost(url string, headers map[string]string, body []byte, proxyURL string, contexts ...context.Context) (
 	int, map[string]string, []byte, error) {
 	if proxyURL != "" {
-		req, err := http.NewRequest("POST", url, bytes.NewReader(body))
+		req, err := http.NewRequestWithContext(mediaRequestContext(contexts), "POST", url, bytes.NewReader(body))
 		if err != nil {
 			return 0, nil, nil, err
 		}
@@ -131,7 +132,7 @@ func uploadPost(url string, headers map[string]string, body []byte, proxyURL str
 		}
 		return resp.StatusCode, h, b, err
 	}
-	req, err := fhttp.NewRequest("POST", url, bytes.NewReader(body))
+	req, err := fhttp.NewRequestWithContext(mediaRequestContext(contexts), "POST", url, bytes.NewReader(body))
 	if err != nil {
 		return 0, nil, nil, err
 	}

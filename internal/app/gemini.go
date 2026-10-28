@@ -3,6 +3,7 @@ package app
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -329,6 +330,15 @@ type fileRef struct {
 func streamGenerateWithFiles(prompt, latest string, mc ModelConfig, pending []pendingUpload,
 	onDelta, onReasoning func(string)) (*StreamResult, error) {
 	requestStarted := time.Now()
+	imageCtx := context.Background()
+	generationCtx := imageCtx
+	if mc.Tool == toolImage {
+		var cancelImage, cancelGeneration context.CancelFunc
+		imageCtx, cancelImage = context.WithDeadline(imageCtx, requestStarted.Add(110*time.Second))
+		defer cancelImage()
+		generationCtx, cancelGeneration = context.WithDeadline(imageCtx, requestStarted.Add(90*time.Second))
+		defer cancelGeneration()
+	}
 	var files []fileRef
 
 	// 先挑号，再按它上次绑的出口挑代理 —— 同一个账号要尽量固定从同一个 IP 出去，
@@ -354,11 +364,13 @@ func streamGenerateWithFiles(prompt, latest string, mc ModelConfig, pending []pe
 	var picked Proxy
 	var cookieID int64
 	var cookieLabel string
+	var requestTTFB int64
 	attrib := func(err error) (*StreamResult, error) {
 		return &StreamResult{
 			AccountID: cookieID, AccountLabel: cookieLabel,
 			ProxyID: picked.ID, ProxyName: picked.Name,
 			TotalMs: time.Since(requestStarted).Milliseconds(),
+			TTFBMs:  requestTTFB,
 		}, err
 	}
 
@@ -649,13 +661,25 @@ func streamGenerateWithFiles(prompt, latest string, mc ModelConfig, pending []pe
 	}
 
 	for attempt := 0; attempt < rtCfg().RetryAttempts; attempt++ {
-		statusCode, raw, ttfb, setCookie, err := doGeminiRequest(endpoint, body, geminiHeaders, proxyURL, lineCB)
+		statusCode, raw, ttfb, setCookie, err := doGeminiRequest(endpoint, body, geminiHeaders, proxyURL, lineCB, generationCtx)
+		requestTTFB = ttfb
 		if len(setCookie) > 0 && cookieID > 0 {
 			if merged := mergeSetCookie(cookieStr, setCookie); merged != cookieStr {
 				cookieStr = updateAccountCookieFrom(cookieID, cookieStr, merged)
 			}
 		}
 		if err != nil {
+			if mc.Tool == toolImage {
+				logf("[media] 生图响应中断，不重发生成: account=%d proxy=%d partial_bytes=%d conversation=%t", cookieID, picked.ID, len(raw), extractConversationID(string(raw)) != "")
+				if recovered, recoveryErr := recoverImageResponse(imageCtx, raw, cookieStr, sapisid, xsrfToken, proxyURL); recoveryErr == nil {
+					recovered.AccountID, recovered.AccountLabel = cookieID, cookieLabel
+					recovered.ProxyID, recovered.ProxyName = picked.ID, picked.Name
+					recovered.TTFBMs, recovered.TotalMs = ttfb, time.Since(requestStarted).Milliseconds()
+					return recovered, nil
+				} else {
+					return attrib(fmt.Errorf("image outcome unconfirmed; generation was not resubmitted: %w; recovery: %v", err, recoveryErr))
+				}
+			}
 			lastErr = err
 			if pickedOK {
 				recordProxyResult(picked.ID, false, err.Error())
@@ -687,6 +711,9 @@ func streamGenerateWithFiles(prompt, latest string, mc ModelConfig, pending []pe
 			}
 			lastErr = fmt.Errorf("upstream HTTP %d: %s", statusCode, truncate(string(raw), 200))
 			lastStatus = statusCode
+			if mc.Tool == toolImage {
+				break
+			}
 			if pickedOK {
 				recordProxyResult(picked.ID, false, lastErr.Error())
 			}
@@ -706,6 +733,15 @@ func streamGenerateWithFiles(prompt, latest string, mc ModelConfig, pending []pe
 		// 判据是**有没有内容帧**，不是 BardErrorInfo：正常响应的结束帧里也带错误码
 		// （1096 = 会话未持久化），拿它判错会把每个正常响应都判成失败。
 		if !hasContentFrame(string(raw)) {
+			if mc.Tool == toolImage {
+				if recovered, recoveryErr := recoverImageResponse(imageCtx, raw, cookieStr, sapisid, xsrfToken, proxyURL); recoveryErr == nil {
+					recovered.AccountID, recovered.AccountLabel = cookieID, cookieLabel
+					recovered.ProxyID, recovered.ProxyName = picked.ID, picked.Name
+					recovered.TTFBMs, recovered.TotalMs = ttfb, time.Since(requestStarted).Milliseconds()
+					return recovered, nil
+				}
+				return attrib(fmt.Errorf("image outcome unconfirmed: upstream returned no content frame; generation was not resubmitted"))
+			}
 			lastErr = fmt.Errorf("upstream returned no content frame (raw %d bytes)", len(raw))
 			if pickedOK {
 				// 记进代理健康度：1155 跟出口质量强相关（干净出口 60+ 次 0 发生，
@@ -751,7 +787,7 @@ func streamGenerateWithFiles(prompt, latest string, mc ModelConfig, pending []pe
 			}
 			arts, aerr := fetchMediaArtifacts(
 				mc.Tool, string(raw), extractConversationID(string(raw)),
-				cookieStr, sapisid, xsrfToken, proxyURL, mime)
+				cookieStr, sapisid, xsrfToken, proxyURL, mime, imageCtx)
 			if aerr != nil {
 				logf("[media] 取回产物失败: %v", aerr)
 				result.MediaErr = aerr.Error()
@@ -846,11 +882,11 @@ func buildGeminiHeaders(cookieStr, sapisid, hexID string) map[string]string {
 // __Secure-3PSIDCC，浏览器收下再带回去。一直发旧值的客户端会被判定为过期会话，
 // 实测号活一两小时就失效 —— 所以这些必须收下来并写回账号。
 func doGeminiRequest(endpoint, body string, headers map[string]string, proxyURL string,
-	onLine func(string)) (int, []byte, int64, []string, error) {
+	onLine func(string), contexts ...context.Context) (int, []byte, int64, []string, error) {
 	sendAt := time.Now()
 	if proxyURL != "" {
 		// 走 stdlib 的 http.ProxyURL，已知能过 socks5/socks5h。
-		req, err := http.NewRequest("POST", endpoint, strings.NewReader(body))
+		req, err := http.NewRequestWithContext(mediaRequestContext(contexts), "POST", endpoint, strings.NewReader(body))
 		if err != nil {
 			return 0, nil, 0, nil, err
 		}
@@ -866,13 +902,13 @@ func doGeminiRequest(endpoint, body string, headers map[string]string, proxyURL 
 		defer resp.Body.Close()
 		raw, ttfb, err := readBody(resp.Body, onLine, sendAt)
 		if err != nil {
-			return resp.StatusCode, nil, ttfb, resp.Header.Values("Set-Cookie"), err
+			return resp.StatusCode, raw, ttfb, resp.Header.Values("Set-Cookie"), err
 		}
 		return resp.StatusCode, raw, ttfb, resp.Header.Values("Set-Cookie"), nil
 	}
 
 	// 直连 → tls-client，保留 chrome146 TLS/HTTP2 真指纹
-	req, err := fhttp.NewRequest("POST", endpoint, strings.NewReader(body))
+	req, err := fhttp.NewRequestWithContext(mediaRequestContext(contexts), "POST", endpoint, strings.NewReader(body))
 	if err != nil {
 		return 0, nil, 0, nil, err
 	}
@@ -887,7 +923,7 @@ func doGeminiRequest(endpoint, body string, headers map[string]string, proxyURL 
 	defer resp.Body.Close()
 	raw, ttfb, err := readBody(resp.Body, onLine, sendAt)
 	if err != nil {
-		return resp.StatusCode, nil, ttfb, resp.Header.Values("Set-Cookie"), err
+		return resp.StatusCode, raw, ttfb, resp.Header.Values("Set-Cookie"), err
 	}
 	return resp.StatusCode, raw, ttfb, resp.Header.Values("Set-Cookie"), nil
 }
