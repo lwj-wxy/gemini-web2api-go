@@ -158,7 +158,7 @@ func callGemini(prompt, latest string, mc ModelConfig, tools []map[string]interf
 			if msg == "" {
 				msg = "媒体产物取回失败"
 			}
-			return "", nil, res, fmt.Errorf("media generation succeeded but artifact retrieval failed: %s", msg)
+			return "", nil, res, fmt.Errorf("media result unavailable: %s", msg)
 		}
 		// 产物以 base64 data URL 追加到正文（可能没正文，只有图/乐/视频）。
 		text = appendArtifactMarkdown(text, res.Artifacts)

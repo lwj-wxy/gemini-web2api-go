@@ -159,18 +159,37 @@ func fetchMediaArtifacts(tool int, raw, cid, cookie, sapisid, xsrf, proxyURL, de
 func fetchImageArtifacts(raw, cid, cookie, sapisid, xsrf, proxyURL, defaultMime string) ([]MediaArtifact, error) {
 	urls := collectImageURLs(raw)
 	if len(urls) == 0 {
+		if cid == "" {
+			return nil, fmt.Errorf("image result unavailable: no image URL or conversation ID in upstream response")
+		}
+		var lastErr error
+		queries, failures := 0, 0
 		for i := 0; i < 6; i++ {
+			queries++
 			if body, err := pollHistoryRaw(cid, cookie, sapisid, xsrf, proxyURL); err == nil {
 				if u := collectImageURLs(body); len(u) > 0 {
 					urls = u
 					break
 				}
+				logf("[media] 图片历史查询 %d/6: HTTP 200, bytes=%d, image_urls=0", i+1, len(body))
+			} else {
+				lastErr = err
+				failures++
+				logf("[media] 图片历史查询 %d/6 失败: %v", i+1, err)
+				if strings.Contains(err.Error(), "hNvQHb HTTP 400") || strings.Contains(err.Error(), "hNvQHb HTTP 401") || strings.Contains(err.Error(), "hNvQHb HTTP 403") || strings.Contains(err.Error(), "hNvQHb HTTP 429") {
+					break
+				}
 			}
-			time.Sleep(2 * time.Second)
+			if i < 5 {
+				time.Sleep(2 * time.Second)
+			}
+		}
+		if len(urls) == 0 && lastErr != nil {
+			return nil, fmt.Errorf("image result unavailable: history queries=%d failures=%d; last error: %w", queries, failures, lastErr)
 		}
 	}
 	if len(urls) == 0 {
-		return nil, fmt.Errorf("响应里没有图片 CDN 链接")
+		return nil, fmt.Errorf("image result unavailable: no image URL after 6 successful history queries; generation is unconfirmed")
 	}
 	var arts []MediaArtifact
 	for _, u := range urls {

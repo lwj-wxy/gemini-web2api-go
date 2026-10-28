@@ -723,6 +723,7 @@ func streamGenerateWithFiles(prompt, latest string, mc ModelConfig, pending []pe
 		// 媒体模型：生成的产物字节不在这条响应里，要用同一套 cookie / 出口再走一遍
 		// hNvQHb + 下载 host 取回。取不到就记 MediaErr，让上层报错而不是返回半成品。
 		if mc.Tool == toolImage || mc.Tool == toolMusic || mc.Tool == toolVideo {
+			logf("[media] 收到媒体响应: account=%d proxy=%d model=%q bytes=%d conversation=%t image_urls=%d", cookieID, picked.ID, result.UpstreamModel, len(raw), extractConversationID(string(raw)) != "", len(collectImageURLs(string(raw))))
 			mime := "image/png"
 			switch mc.Tool {
 			case toolMusic:
@@ -746,7 +747,7 @@ func streamGenerateWithFiles(prompt, latest string, mc ModelConfig, pending []pe
 		//
 		// 临时对话（#34）生效时跳过：那条压根没进会话列表，删它是多发一次 RPC 删空气。
 		// 这正是临时对话比 create-then-delete 省的那一次出站请求。
-		if rtCfg().AutoDeleteConversation && !temporaryChatEligible() && cookieStr != "" && xsrfToken != "" {
+		if result.MediaErr == "" && rtCfg().AutoDeleteConversation && !temporaryChatEligible() && cookieStr != "" && xsrfToken != "" {
 			if cid := extractConversationID(string(raw)); cid != "" {
 				go deleteConversation(cid, cookieStr, sapisid, xsrfToken, proxyURL)
 			}
