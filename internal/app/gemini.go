@@ -422,7 +422,7 @@ func streamGenerateWithFiles(prompt, latest string, mc ModelConfig, pending []pe
 		// 只试一次，且只在这一轮。
 		if !rotatedOnce[acct.ID] {
 			rotatedOnce[acct.ID] = true
-			if _, _, rerr := rotateAccount(*acct); rerr == nil {
+			if _, _, rerr := rotateAccountOnProxy(*acct, proxyURL); rerr == nil {
 				if fresh := accountByID(acct.ID); fresh != nil {
 					if tok2, err2 := getXSRF(fresh.Cookie, proxyURL); err2 == nil {
 						logf("[cookie] 账号 #%d 轮转后恢复可用", acct.ID)

@@ -129,15 +129,25 @@ func handleAdminCookieItem(w http.ResponseWriter, r *http.Request) {
 				if a.ID == id {
 					iv, names, err := rotateAccount(a)
 					if err != nil {
-						writeJSON(w, 200, map[string]interface{}{"ok": false, "detail": err.Error()})
+						writeJSON(w, 200, map[string]interface{}{"ok": false, "detail": err.Error(), "refreshed": names})
 						return
 					}
-					detail := "保活成功"
+					detail := "登录态检测通过"
 					if len(names) > 0 {
-						detail = "保活成功，刷新了 " + strings.Join(names, ", ")
+						detail = "登录态检测通过，刷新了 " + strings.Join(names, ", ")
+					}
+					tsRefreshed := false
+					for _, name := range names {
+						if name == "__Secure-1PSIDTS" {
+							tsRefreshed = true
+							break
+						}
+					}
+					if !tsRefreshed {
+						detail += "；本次未收到 __Secure-1PSIDTS，续期结果未确认"
 					}
 					writeJSON(w, 200, map[string]interface{}{
-						"ok": true, "detail": detail, "refreshed": names, "next_sec": int(iv.Seconds())})
+						"ok": true, "detail": detail, "refreshed": names, "ts_refreshed": tsRefreshed, "next_sec": int(iv.Seconds())})
 					return
 				}
 			}

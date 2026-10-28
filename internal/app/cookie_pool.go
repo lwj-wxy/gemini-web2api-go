@@ -535,6 +535,9 @@ func checkAccountCookie(a CookieAccount) CookieCheck {
 		return CookieCheck{State: "pending", Code: "exit_unavailable", Detail: explainCookieFailure(err), TookMs: time.Since(t0).Milliseconds()}
 	}
 	defer releaseSlot(picked.ID)
+	if picked.ID > 0 && (a.ProxyID == 0 || !proxyUsableByID(a.ProxyID)) {
+		bindAccountProxy(a.ID, picked.ID)
+	}
 	proxyURL := picked.URL
 	name := picked.Name
 	if name == "" {

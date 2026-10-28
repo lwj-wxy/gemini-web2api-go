@@ -60,10 +60,32 @@ var rotateInitRe = regexp.MustCompile(`init\('([^']{4,64})'\s*,\s*([0-9.]+)\s*,[
 // rotateAccount 给一个账号做一次保活：先刷 1PSIDTS，再刷 SIDCC。
 // 返回服务端建议的下次间隔，以及这一轮实际刷新的 cookie 名。
 func rotateAccount(a CookieAccount) (time.Duration, []string, error) {
-	proxyURL := ""
-	if a.ProxyID > 0 {
-		proxyURL = proxyURLByID(a.ProxyID)
+	picked, ok, err := acquireSlot(a.ProxyID)
+	if !ok {
+		return 0, nil, fmt.Errorf("保活无法获取出口: %w", err)
 	}
+	defer releaseSlot(picked.ID)
+	if picked.ID > 0 && (a.ProxyID == 0 || !proxyUsableByID(a.ProxyID)) {
+		bindAccountProxy(a.ID, picked.ID)
+	}
+	interval, names, rotateErr := rotateAccountOnProxy(a, picked.URL)
+	if fresh := accountByID(a.ID); fresh != nil {
+		invalidateXSRF(fresh.Cookie)
+		_, checkErr := getXSRF(fresh.Cookie, picked.URL)
+		if checkErr != nil {
+			recordCookieCheckError(a.ID, checkErr)
+			return interval, names, fmt.Errorf("保活后登录态待验证: %w", checkErr)
+		}
+		markAccountResult(a.ID, true, "")
+	}
+	if rotateErr != nil {
+		return interval, names, rotateErr
+	}
+	return interval, names, nil
+}
+
+// Callers that already hold a slot must use the same egress without acquiring it again.
+func rotateAccountOnProxy(a CookieAccount, proxyURL string) (time.Duration, []string, error) {
 
 	cookie := a.Cookie
 	var names []string
