@@ -116,7 +116,7 @@ func rotateAccountOnProxy(a CookieAccount, proxyURL string) (time.Duration, []st
 	names = uniqueKeepOrder(names)
 	if cookie != a.Cookie {
 		old := a.Cookie
-		updateAccountCookie(a.ID, cookie)
+		updateAccountCookieFrom(a.ID, old, cookie)
 		invalidateXSRF(old)
 	}
 	if len(names) > 0 {

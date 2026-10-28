@@ -634,8 +634,7 @@ func streamGenerateWithFiles(prompt, latest string, mc ModelConfig, pending []pe
 		statusCode, raw, ttfb, setCookie, err := doGeminiRequest(endpoint, body, geminiHeaders, proxyURL, lineCB)
 		if len(setCookie) > 0 && cookieID > 0 {
 			if merged := mergeSetCookie(cookieStr, setCookie); merged != cookieStr {
-				cookieStr = merged
-				updateAccountCookie(cookieID, merged)
+				cookieStr = updateAccountCookieFrom(cookieID, cookieStr, merged)
 			}
 		}
 		if err != nil {

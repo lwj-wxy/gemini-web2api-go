@@ -680,3 +680,55 @@ func updateAccountCookie(id int64, cookie string) {
 	}
 	_, _ = getDB().Exec(`UPDATE accounts SET cookie=? WHERE id=?`, cookie, id)
 }
+
+// Merge only fields actually refreshed from this request's snapshot. A concurrent
+// response may already have refreshed the same field; in that case keep the
+// stored value. The conditional update protects the read/merge/write boundary.
+func updateAccountCookieFrom(id int64, before, after string) string {
+	if id <= 0 || before == "" || after == "" || cookieIdentity(before) != cookieIdentity(after) {
+		return before
+	}
+	old := map[string]string{}
+	for _, kv := range splitCookiePairs(before) {
+		old[kv[0]] = kv[1]
+	}
+	for tries := 0; tries < 5; tries++ {
+		var current string
+		if err := getDB().QueryRow(`SELECT cookie FROM accounts WHERE id=?`, id).Scan(&current); err != nil {
+			return before
+		}
+		if cookieIdentity(current) != cookieIdentity(before) {
+			return before
+		}
+		currentValues := map[string]string{}
+		for _, kv := range splitCookiePairs(current) {
+			currentValues[kv[0]] = kv[1]
+		}
+		var changes []string
+		for _, kv := range splitCookiePairs(after) {
+			previous, existed := old[kv[0]]
+			if existed && previous == kv[1] {
+				continue
+			}
+			now, existsNow := currentValues[kv[0]]
+			if existsNow != existed || (existed && now != previous) {
+				continue
+			}
+			changes = append(changes, kv[0]+"="+kv[1])
+		}
+		merged := mergeSetCookie(current, changes)
+		if merged == current {
+			return current
+		}
+		result, err := getDB().Exec(`UPDATE accounts SET cookie=? WHERE id=? AND cookie=?`, merged, id, current)
+		if err != nil {
+			logf("[cookie] 账号 #%d 刷新写回失败", id)
+			return before
+		}
+		if count, err := result.RowsAffected(); err == nil && count == 1 {
+			return merged
+		}
+	}
+	logf("[cookie] 账号 #%d 刷新写回冲突，请稍后重试", id)
+	return before
+}
